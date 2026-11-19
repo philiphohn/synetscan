@@ -5,7 +5,7 @@
             "title": "SynetScan",
             "desc": "Find and monitor the devices on your local network",
             "icon": "images/icon_{0}.png",
-            "version": "1.0.2",
+            "version": "1.0.3",
             "allUsers": false,
             "allowMultiInstance": false,
             "appWindow": "SYNO.SDS.SynetScan.MainWindow"

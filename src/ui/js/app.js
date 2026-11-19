@@ -454,7 +454,7 @@
     if (S.page === "overview") renderBanner();
     if (S.wasScanning && !scanning) {
       S.wasScanning = false;
-      if (st.last_scan && !st.last_error) toast(T("found_n", st.last_scan.found) + " · " + T("ev_new") + ": " + st.last_scan.new, "info");
+      if (st.last_scan && !st.last_error) toast(T("scan_done", st.last_scan.found, st.last_scan.new), "info");
       refreshPage();
       if (S.page !== "devices") loadDevices(true);
     } else if (scanning) {
@@ -691,7 +691,7 @@
   // A device's own address only works when the browser is in the NAS's network. The service
   // knows best (it sees the browser's address: a QuickConnect relay arrives via loopback); the
   // host name is the fallback. QuickConnect sends LAN users to "192-168-1-61.<id>.direct…".
-  var PRIVATE = /^(10|127|192\.168|172\.(1[6-9]|2\d|3[01])|169\.254)[.-]/;
+  var PRIVATE = /^(10|192[.-]168|172[.-](1[6-9]|2\d|3[01]))[.-]/;
   function guessLocal() {
     var h = location.hostname.toLowerCase();
     if (/\.quickconnect\.(to|cn)$/.test(h)) return PRIVATE.test(h);
@@ -699,9 +699,13 @@
     if (h.indexOf(".") < 0 || /\.(local|lan|home|fritz\.box|localdomain|internal|home\.arpa)$/.test(h)) return true;
     return null;
   }
+  // Local only if the service says so and the host name does not contradict it: a wrong
+  // "local" would silently open an address in whatever network the viewer is in.
   function loadClient() {
-    return api("client").then(function (c) { S.local = c.local === null ? guessLocal() : c.local; },
-      function () { S.local = guessLocal(); });
+    return api("client").then(function (c) {
+      var g = guessLocal();
+      S.local = c.local === null ? g : (c.local && g !== false);
+    }, function () { S.local = guessLocal(); });
   }
   function webAllowed() { return S.local !== false; }
   function openWeb(url) { if (webAllowed()) window.open(url, "_blank", "noopener"); }

@@ -245,8 +245,11 @@ class ClientLocationTests(unittest.TestCase):
         from synetscan import netinfo
         orig = netinfo.interfaces
         netinfo.interfaces = lambda: [
-            {"name": "eth0", "network": "192.168.1.0/24", "virtual": False},
-            {"name": "docker0", "network": "172.17.0.0/16", "virtual": True}]
+            {"name": "eth0", "network": "192.168.1.0/24", "virtual": False, "up": True},
+            {"name": "eth1", "network": "169.254.0.0/16", "virtual": False, "up": False},  # unplugged, APIPA
+            {"name": "eth2", "network": "10.9.0.0/24", "virtual": False, "up": False},
+            {"name": "tun1000", "network": "169.254.184.0/21", "virtual": True, "up": True},  # QuickConnect relay
+            {"name": "docker0", "network": "172.17.0.0/16", "virtual": True, "up": True}]
         try:
             loc = netinfo.client_location
             self.assertEqual(loc("127.0.0.1")["via"], "relay")      # QuickConnect relay tunnel
@@ -255,7 +258,11 @@ class ClientLocationTests(unittest.TestCase):
             self.assertTrue(loc("192.168.1.100")["local"])           # browser in the LAN
             self.assertTrue(loc("::ffff:192.168.1.100")["local"])
             self.assertFalse(loc("172.17.0.5")["local"])             # docker bridge is not the LAN
-            self.assertTrue(loc("fe80::1")["local"])
+            # DS220+ / DSM 7.4.1 over QuickConnect (round 3): relay tunnel, not the APIPA eth1
+            self.assertEqual(loc("169.254.184.1"), {"ip": "169.254.184.1", "local": False, "via": "relay"})
+            self.assertFalse(loc("169.254.10.10")["local"])
+            self.assertFalse(loc("10.9.0.5")["local"])               # interface is down
+            self.assertFalse(loc("fe80::1")["local"])
             self.assertIsNone(loc("")["local"])
         finally:
             netinfo.interfaces = orig

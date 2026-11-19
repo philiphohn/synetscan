@@ -1,24 +1,58 @@
-# SynetScan – network scanner for Synology DSM 7
+<div align="center">
 
-SynetScan is a Synology package that finds and monitors the devices on the NAS's
-local network. It opens as a regular window on the DSM desktop and is styled
-like DSM 7's own apps: the left navigation, toolbars, grids, dialogs and forms
-all follow DSM's look.
+<img width="128" alt="SynetScan icon" src="src/ui/images/icon_256.png">
 
-| | |
-|---|---|
-| **Overview** | Health banner, counters, recent activity, device types, network interfaces |
-| **Devices** | Sortable/filterable grid, search, right-click menu, Edit dialog (name, type, notes), Wake-on-LAN, open web UI, CSV export |
-| **Activity** | Event log (new device, offline, back online, IP changed) and scan history |
-| **Settings** | Scan targets (interfaces + custom ranges/VLANs), schedule, port list, detection methods, performance, data maintenance |
+<a name="readme-top"></a>
 
-The UI is available in English and German and follows the DSM session language.
+# SynetScan
 
-## Installation
+**A network scanner for your Synology NAS.**<br/>
+See every device on your network, know what it is, and notice when something new shows up.
+
+![DSM 7.0+](https://img.shields.io/badge/DSM-7.0%2B-0479ec?style=flat-square&logo=synology&logoColor=white)
+![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white)
+![No dependencies](https://img.shields.io/badge/dependencies-none-2ea44f?style=flat-square)
+![Runs as non-root](https://img.shields.io/badge/runs%20as-non--root-6f42c1?style=flat-square)
+![English · Deutsch](https://img.shields.io/badge/UI-English%20%C2%B7%20Deutsch-f0ad4e?style=flat-square)
+
+<img width="99%" alt="SynetScan running on the DSM desktop: overview, a scan, reviewing a new device, device details, activity and settings" src="docs/images/demo.gif">
+
+<sub>Demo recorded with made-up data (<code>tools/demo/</code>).</sub>
+
+</div>
+
+SynetScan is a feature-rich network scanner. It scans your LAN on a schedule,
+identifies and sorts every device it finds and flags any newly detected devices.
+Open it from the DSM main menu like any other Synology app.
+
+## ✨ Features
+
+- **Finds everything on your LAN.** That includes devices that ignore ping or block every
+  port, because SynetScan also uses the NAS's ARP table.
+- **Tells you what each device is.** It combines the MAC vendor (about 59,000 entries),
+  host names (DNS, NetBIOS, Bonjour/mDNS), UPnP descriptions, open services and web page
+  titles to name devices and sort them into 14 types: router, NAS, computer, phone, TV,
+  printer, camera, smart home and more.
+- **Flags new devices.** The first scan becomes your baseline; anything that joins later is
+  marked **New** until you confirm it. The activity log also records devices going offline,
+  coming back and changing their IP address.
+- **Feels like part of DSM.** It opens as a normal DSM window, with DSM's own look:
+  navigation, toolbars, tables, dialogs and right-click menus. It follows your DSM
+  language (English or German) and time zone.
+- **Gets things done in place.** Rename devices, correct their type, add notes, wake them
+  with Wake-on-LAN, open their web interface (on the local network) or export the list as CSV.
+- **Runs on its own.** Scans on a schedule from every 5 minutes to once a day, and a /24
+  network takes about 10 seconds.
+- **Safe by design.** Runs as an unprivileged package user (DSM 7 rules), only DSM
+  administrators can use it, and every request is checked against your DSM session.
+- **No extras needed.** It's a single `noarch` package for every model, using the Python 3
+  that DSM 7 already ships. No Docker, no cloud account, no command line.
+
+## ⚡️ Installation
 
 1. Build the package (or use a prebuilt `dist/*.spk`):
    ```sh
-   ./build.sh            # -> dist/SynetScan-1.0.2-0001-noarch.spk
+   ./build.sh            # -> dist/SynetScan-1.0.3-0001-noarch.spk
    ```
 2. In DSM, open **Package Center → Manual Install** and choose the `.spk`.
    DSM will warn that the package is from an unknown publisher (it isn't signed
@@ -35,7 +69,7 @@ If it is missing, install **Python 3.9** from Package Center first. The package 
 Only members of the **administrators** group can open the app. Both the DSM menu
 entry and the API check this.
 
-## How it works
+## 🔍 How it works
 
 ```
 DSM window (iframe)  index.html · js/app.js · css/dsm.css
@@ -75,7 +109,7 @@ aren't available. SynetScan works around this without privileges:
 
 A /24 network takes roughly 8–15 seconds to scan.
 
-## DSM integration
+## 🧩 DSM integration
 
 - **Window.** Since DSM 7.2 a `"type": "legacy"` app entry opens in a browser tab, where the
   page cannot use the DSM session. So `ui/config` registers an ExtJS application,
@@ -92,14 +126,15 @@ A /24 network takes roughly 8–15 seconds to scan.
   DSM session and admin checks.
 - **Local or remote.** "Open web interface" only works when the browser is in the NAS's
   network. `api.cgi?action=client` compares the browser's address (`REMOTE_ADDR`) with the
-  NAS's interface networks. A QuickConnect relay arrives via loopback, and DDNS or port
-  forwarding arrives from a public address; both count as remote, and the web links are then
-  greyed out with an explanation. Local QuickConnect hosts (`192-168-…direct.quickconnect.to`)
-  count as local.
+  networks of the NAS's connected, physical interfaces. QuickConnect relays arrive via
+  loopback or the relay tunnel (e.g. `169.254.184.1` on `tun1000`), and DDNS or port
+  forwarding from a public address: all of these count as remote, and the web links are then
+  greyed out with an explanation. The UI also checks the host name, and local QuickConnect
+  hosts (`192-168-…direct.quickconnect.to`) count as local.
 - **Errors.** The CGI always answers HTTP 200 with `"success": false`, so DSM's nginx never
   swaps the answer for an HTML error page. The UI translates errors by their `code`.
 
-## Repository layout
+## 📁 Repository layout
 
 ```
 src/
@@ -114,13 +149,14 @@ tools/
   devserver.py            local preview with a mock DSM desktop
   mock_dsm.html           the mock desktop (window frame + iframe)
   shot.mjs                headless-Chrome screenshot helper (CDP, no deps)
+  demo/                   records docs/images/demo.gif from made-up data
   build_oui.py            Wireshark manuf -> oui.txt.gz
   make_icons.py           renders the app/package icons (Pillow)
 tests/test_core.py        unit tests
 build.sh                  builds dist/SynetScan-<version>-noarch.spk
 ```
 
-## Development
+## 🛠 Development
 
 ```sh
 python3 -m unittest discover -s tests      # unit tests
@@ -130,6 +166,14 @@ python3 tools/devserver.py                 # http://127.0.0.1:8640/  (?lang=de, 
 The dev server runs the real daemon, with its data in `.devvar/`, and the real
 `api.cgi`. Setting `SYNETSCAN_DEV=1` skips the DSM login check. To scan specific
 ranges, edit them in **Settings → Scan Targets**.
+
+To re-record the demo GIF (needs Chrome and ffmpeg):
+
+```sh
+rm -rf .devvar && python3 tools/demo/seed.py .devvar
+python3 tools/devserver.py &
+node tools/demo/record.mjs                  # -> docs/images/demo.gif
+```
 
 To update the vendor database:
 
@@ -141,7 +185,7 @@ python3 tools/build_oui.py third_party/manuf src/share/oui.txt.gz
 To release a new version, change `__version__` in `src/lib/synetscan/__init__.py`.
 `BUILD=0002 ./build.sh` sets the build number.
 
-## Limitations
+## ⚠️ Limitations
 
 - **IPv4 only.**
 - **Routed networks have no MAC addresses.** Devices in networks reached through a
@@ -152,10 +196,11 @@ To release a new version, change `__version__` in `src/lib/synetscan/__init__.py
 - **Docker hosts.** When Container Manager is installed, the `docker*`/`veth*`
   bridges are skipped automatically. Add a range under custom ranges if you want
   to scan one anyway.
-- **Tested on a DS220+ with DSM 7.4.1 (version 1.0.0).** Install, service, CGI,
-  authentication and scanning worked. The legacy app entry opened a browser tab, which
-  1.0.1 replaces with the ExtJS window described above; that window still needs testing on
-  real hardware.
+- **Tested on real hardware:** a DS220+ with DSM 7.4.1 (install, update, DSM window, scanning,
+  QuickConnect access). Other models and DSM versions should work the same way, since the
+  package is `noarch`, but they have not been tried.
 
 Logs are in `/var/packages/SynetScan/var/synetscan.log`. DSM 7.4 Package Center has no Log
 tab for third-party packages, so read the file over SSH or with a Task Scheduler script.
+
+<div align="right"><a href="#readme-top">↑ back to top</a></div>

@@ -188,9 +188,12 @@ def client_location(remote_addr):
     """Is a browser at `remote_addr` in one of the NAS's own networks?
 
     Returns {"ip", "local": True/False/None, "via"}. QuickConnect relays arrive through a local
-    tunnel (loopback), DDNS/port forwarding from public addresses: both are remote. A browser in
-    the LAN connects from an address inside an interface network, even when it uses a
-    QuickConnect or DDNS host name that resolves to the NAS's LAN address.
+    tunnel: from loopback, or (DSM 7.4) from the relay tunnel's own link-local network, e.g.
+    169.254.184.1 on tun1000. DDNS/port forwarding arrive from public addresses. All of these are
+    remote. A browser in the LAN connects from an address inside a physical interface's network,
+    even when it uses a QuickConnect or DDNS host name that resolves to the NAS's LAN address.
+    Interfaces that are down and link-local (APIPA) networks never make a client local: an
+    unplugged port keeps 169.254.x.x/16, which would also cover the relay tunnel's addresses.
     """
     try:
         ip = ipaddress.ip_address((remote_addr or "").split("%")[0])
@@ -201,12 +204,19 @@ def client_location(remote_addr):
     if ip.is_loopback:
         return {"ip": str(ip), "local": False, "via": "relay"}
     if ip.version == 4:
-        for i in interfaces():
-            if not i["virtual"] and ip in ipaddress.IPv4Network(i["network"]):
+        ifaces = interfaces()
+        for i in ifaces:
+            if i["virtual"] and i["name"] != "lo" and ip in ipaddress.IPv4Network(i["network"]):
+                return {"ip": str(ip), "local": False, "via": "relay"}
+        if ip.is_link_local:
+            return {"ip": str(ip), "local": False, "via": "link-local"}
+        for i in ifaces:
+            net = ipaddress.IPv4Network(i["network"])
+            if not i["virtual"] and i["up"] and not net.is_link_local and ip in net:
                 return {"ip": str(ip), "local": True, "via": i["name"]}
     else:
         if ip.is_link_local:
-            return {"ip": str(ip), "local": True, "via": "link-local"}
+            return {"ip": str(ip), "local": False, "via": "link-local"}
         for net, name in _ipv6_prefixes():
             if not is_virtual(name) and ip in net:
                 return {"ip": str(ip), "local": True, "via": name}
