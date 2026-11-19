@@ -277,5 +277,149 @@ class ClientLocationTests(unittest.TestCase):
         self.assertNotIn("model", st.devices["00:11:32:00:00:01"])
 
 
+class IPv6Tests(unittest.TestCase):
+    def test_parse_ip_neigh(self):
+        from synetscan import ipv6
+        text = """fe80::1 dev eth0 lladdr 3c:a6:2f:10:20:01 router REACHABLE
+2001:db8::5 dev eth0 lladdr 64:4e:d7:00:00:61 STALE
+fe80::9 dev eth0 FAILED
+fe80::8 dev eth0 lladdr 64:4e:d7:00:00:62 INCOMPLETE
+ff02::fb dev eth0 lladdr 33:33:00:00:00:fb NOARP"""
+        n = ipv6.parse_neighbors(text)
+        self.assertEqual([(x["ip"], x["mac"], x["router"]) for x in n],
+                         [("fe80::1", "3c:a6:2f:10:20:01", True), ("2001:db8::5", "64:4e:d7:00:00:61", False)])
+
+    def test_parse_netlink(self):
+        import socket as so
+        from synetscan import ipv6
+
+        def neigh(ip, mac, state, flags=0):
+            attrs = struct.pack("=HH", 20, 1) + so.inet_pton(so.AF_INET6, ip)
+            attrs += struct.pack("=HH", 10, 2) + bytes.fromhex(mac.replace(":", "")) + b"\0\0"
+            body = struct.pack("=BxxxiHBB", so.AF_INET6, 2, state, flags, 0) + attrs
+            return struct.pack("=IHHII", 16 + len(body), 28, 2, 1, 0) + body
+        data = neigh("fe80::1", "3c:a6:2f:10:20:01", 0x02, 0x80) + neigh("fe80::2", "3c:a6:2f:10:20:02", 0x20) \
+            + struct.pack("=IHHII", 20, 3, 2, 1, 0) + b"\0" * 4
+        entries, done = ipv6.parse_netlink_neighbors(data)
+        self.assertTrue(done)
+        self.assertEqual([(e["ip"], e["mac"], e["router"], e["ifindex"]) for e in entries],
+                         [("fe80::1", "3c:a6:2f:10:20:01", True, 2)])
+
+    def test_addresses(self):
+        from synetscan import ipv6
+        self.assertEqual(ipv6.eui64_link_local("00:11:32:10:20:10"), "fe80::211:32ff:fe10:2010")
+        self.assertEqual([ipv6.kind(a) for a in ("fe80::1", "fd00::1", "2001:db8::1")], ["link", "ula", "global"])
+        self.assertEqual(ipv6.sort_addresses(["fe80::1", "fd00::1", "2001:db8::1", "fd00::1"]),
+                         ["2001:db8::1", "fd00::1", "fe80::1"])
+
+    def test_aaaa_record(self):
+        import socket as so
+        q = dnsmsg.build_query([("host.local", dnsmsg.T_AAAA)], txid=1)
+        name = b"\x04host\x05local\x00"
+        rr = name + struct.pack("!HHIH", dnsmsg.T_AAAA, 1, 120, 16) + so.inet_pton(so.AF_INET6, "fd00::42")
+        msg = struct.pack("!HHHHHH", 1, 0x8400, 0, 1, 0, 0) + rr
+        recs = dnsmsg.parse_message(msg)["records"]
+        self.assertEqual((recs[0]["type"], recs[0]["value"]), (dnsmsg.T_AAAA, "fd00::42"))
+        self.assertTrue(q)
+
+    def test_ipv6_only_device_lifecycle(self):
+        d = tempfile.mkdtemp()
+        st = Store(d)
+        v4 = {"ip": "10.0.0.2", "mac": "00:11:32:00:00:01", "type": "nas", "ports": [], "ipv6": ["fd00::2"], "iface": "eth0"}
+        v6 = {"ip": "", "mac": "64:4e:d7:00:00:61", "type": "printer", "ports": [80], "ipv6": ["fd00::61", "fe80::1"],
+              "iface": "eth0", "via": ["ndp"]}
+        scan = lambda hosts, ts, v6i=("eth0",): st.merge_scan({"started": ts, "finished": ts, "duration": 1, "targets": [],
+                                                               "target_count": 1, "hosts": hosts, "_target_ips": {"10.0.0.2"},
+                                                               "_v6_ifaces": set(v6i)})
+        scan([v4, v6], 100)
+        p = st.devices["64:4e:d7:00:00:61"]
+        self.assertEqual((p.get("ip") or "", p["ipv6"][0]), ("", "fd00::61"))
+        dev = [x for x in st.list_devices() if x["id"] == p["id"]][0]
+        self.assertEqual((dev["address"], dev["display_name"]), ("fd00::61", "fd00::61"))
+        # the dual-stack NAS seen only over IPv6 once: no "IP changed", IPv4 kept
+        scan([dict(v4, ip=""), v6], 200)
+        self.assertEqual(st.devices["00:11:32:00:00:01"]["ip"], "10.0.0.2")
+        self.assertNotIn("ip_changed", [e["kind"] for e in st.events])
+        # IPv6 not scanned on its interface: the printer is out of scope, stays online
+        scan([v4], 300, v6i=())
+        self.assertTrue(st.devices["64:4e:d7:00:00:61"]["online"])
+        scan([v4], 400)
+        self.assertFalse(st.devices["64:4e:d7:00:00:61"]["online"])
+        self.assertIn("fd00::61", st.export_csv())
+
+
+class FieldTestRound5Tests(unittest.TestCase):
+    """Findings from the IPv6 tests on three NAS (1.1.0)."""
+
+    def test_proxy_arp_split(self):
+        from synetscan.scanner import split_proxy_arp
+        r = "00:1d:aa:00:00:01"
+        arp = {"192.168.50.1": (r, "eth0"), "192.168.50.198": (r, "eth0"), "192.168.50.202": (r, "eth0"),
+               "192.168.50.12": ("34:5a:06:00:00:12", "eth0")}
+        targets = set(arp)
+        self.assertEqual(split_proxy_arp(arp, targets, {}, {"192.168.50.1"}),
+                         {"192.168.50.198": r, "192.168.50.202": r})
+        # without the gateway among them, the lowest address keeps the MAC
+        no_gw = {k: v for k, v in arp.items() if k != "192.168.50.1"}
+        self.assertEqual(sorted(split_proxy_arp(no_gw, set(no_gw), {}, set())), ["192.168.50.202"])
+
+    def test_non_ipv6_and_stale_prefixes(self):
+        from synetscan import ipv6
+        self.assertEqual(ipv6.sort_addresses(["192.168.0.50", "fe80::1", "2001:db8::1"]), ["2001:db8::1", "fe80::1"])
+        addrs = ["2001:db8:1:61:1111:2222:3333:4444", "2001:db8:1:eb:5555:6666:7777:8888", "fe80::1234:5678:9abc:def0"]
+        self.assertEqual(ipv6.on_link_filter(addrs, ["2001:db8:1:61:211:32ff:fe00:1/64"]),
+                         ["2001:db8:1:61:1111:2222:3333:4444", "fe80::1234:5678:9abc:def0"])
+        self.assertEqual(ipv6.on_link_filter(addrs, []), addrs)
+        self.assertEqual(ipv6.sort_addresses(["2003::2", "2003::1"], deprecated={"2003::1"}), ["2003::2", "2003::1"])
+
+    def test_names(self):
+        from synetscan import scanner
+        self.assertTrue(classify.junk_name("0"))
+        self.assertFalse(classify.junk_name("pc"))
+        self.assertEqual(scanner._RAOP_PREFIX.sub("", "0A1B2C3D4E5F@Living Room Mac"), "Living Room Mac")
+        self.assertTrue(scanner._NUMBER_LIST.match("0,1,2"))
+
+    def test_one_nas_entry(self):
+        d = tempfile.mkdtemp()
+        st = Store(d)
+        a = {"ip": "192.168.50.10", "mac": "90:09:d0:00:00:11", "type": "nas", "ports": [], "self": True}
+        b = {"ip": "192.168.100.10", "mac": "90:09:d0:00:00:12", "type": "nas", "ports": [], "self": True}
+        res = lambda hosts, ts: {"started": ts, "finished": ts, "duration": 1, "targets": [], "target_count": 1, "hosts": hosts}
+        st.merge_scan(res([a], 100))
+        st.devices[b["mac"]] = dict(b, id=b["mac"], online=True, known=True)   # as 1.1.0 stored it
+        self.assertEqual(len(st.devices), 2)
+        st.merge_scan(res([dict(a, other_ips=["192.168.100.10 (eth1)"])], 200))
+        self.assertEqual(list(st.devices), ["90:09:d0:00:00:11"])
+        self.assertEqual(st.devices["90:09:d0:00:00:11"]["other_ips"], ["192.168.100.10 (eth1)"])
+
+
+class Retest1111Tests(unittest.TestCase):
+    """Findings from the 1.1.1 re-tests."""
+
+    def test_proxy_owner_forgets_merged_clients(self):
+        d = tempfile.mkdtemp()
+        st = Store(d)
+        r = "00:1d:aa:00:00:01"
+        res = lambda hosts, ts: {"started": ts, "finished": ts, "duration": 1, "targets": [], "target_count": 1,
+                                 "hosts": hosts, "trigger": "schedule"}
+        # what 1.1.0 left behind: a VPN client's name and IPs merged into the router
+        st.merge_scan(res([{"ip": "192.168.50.202", "mac": r, "type": "network", "ports": [5000],
+                            "netbios": "MACBOOKPRO-1234", "http": {"title": "", "server": "AirTunes"}}], 100))
+        st.devices[r]["ip_history"] = ["192.168.50.201", "192.168.50.1"]
+        st.merge_scan(res([{"ip": "192.168.50.1", "mac": r, "type": "router", "ports": [80], "gateway": True,
+                            "proxy_arp_for": ["192.168.50.201", "192.168.50.202"]},
+                           {"ip": "192.168.50.202", "type": "computer", "ports": [], "netbios": "MACBOOKPRO-1234",
+                            "proxy_arp": r}], 200))
+        router = st.devices[r]
+        self.assertNotIn("netbios", router)
+        self.assertNotIn("http", router)
+        self.assertEqual(router["ip_history"], ["192.168.50.1"])
+        self.assertEqual(classify.display_name(router), "192.168.50.1")
+        self.assertNotIn("ip_changed", [e["kind"] for e in st.events])
+        self.assertEqual(st.devices["ip:192.168.50.202"]["netbios"], "MACBOOKPRO-1234")
+        self.assertEqual(st.scans[-1]["trigger"], "schedule")
+        self.assertEqual(Store(d).scans[-1]["trigger"], "schedule")    # persisted, not only in memory
+
+
 if __name__ == "__main__":
     unittest.main()

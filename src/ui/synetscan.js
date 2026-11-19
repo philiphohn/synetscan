@@ -7,7 +7,7 @@
  */
 (function () {
   var BASE = "/webman/3rdparty/SynetScan/";
-  var VERSION = "1.0.4";
+  var VERSION = "1.1.2";
 
   function session(key) {
     try { return _S(key) || ""; } catch (e) { return ""; }

@@ -18,6 +18,14 @@ ALIVE_ERRNOS = {errno.ECONNREFUSED, errno.ECONNRESET}
 
 
 # --------------------------------------------------------------------------- TCP
+def _sockaddr(ip, port, kind=socket.SOCK_STREAM):
+    """(family, sockaddr) for an IPv4 or IPv6 address; link-local IPv6 may carry "%iface"."""
+    if ":" not in ip:
+        return socket.AF_INET, (ip, port)
+    info = socket.getaddrinfo(ip, port, socket.AF_INET6, kind, 0, socket.AI_NUMERICHOST)
+    return socket.AF_INET6, info[0][4]
+
+
 def tcp_probe(ip, ports, timeout=0.6):
     """Connect to many ports in parallel. Return {port: 'open'|'closed'|'filtered'}."""
     sel = selectors.DefaultSelector()
@@ -25,10 +33,11 @@ def tcp_probe(ip, ports, timeout=0.6):
     socks = []
     try:
         for port in ports:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            family, addr = _sockaddr(ip, port)
+            s = socket.socket(family, socket.SOCK_STREAM)
             s.setblocking(False)
             socks.append(s)
-            rc = s.connect_ex((ip, port))
+            rc = s.connect_ex(addr)
             if rc == 0:
                 result[port] = "open"
             elif rc in (errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EAGAIN):
@@ -62,10 +71,15 @@ def tcp_probe(ip, ports, timeout=0.6):
 
 
 def udp_poke(ip, port=9):
-    """Send a tiny datagram – forces the kernel to ARP-resolve `ip`."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    """Send a tiny datagram – forces the kernel to resolve `ip` (ARP, or neighbour discovery
+    for IPv6)."""
     try:
-        s.sendto(b"\x00", (ip, port))
+        family, addr = _sockaddr(ip, port, socket.SOCK_DGRAM)
+        s = socket.socket(family, socket.SOCK_DGRAM)
+    except (OSError, ValueError):
+        return
+    try:
+        s.sendto(b"\x00", addr)
     except OSError:
         pass
     finally:
@@ -219,20 +233,57 @@ def _mcast_socket(iface_ip=None):
     return s
 
 
-def mdns_browse(iface_ips, duration=2.5):
-    """DNS-SD browse via legacy-unicast multicast queries.
+def _mcast_socket6(ifindex, source=None):
+    s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 2)
+    s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, ifindex)
+    try:
+        s.bind((source or "::", 0))
+    except OSError:
+        s.bind(("::", 0))
+    return s
 
-    Returns {ip: {"services": set, "instances": set, "hostname": str, "txt": {}}}.
+
+def _open_mcast(iface_ips, ifindexes, sources=None):
+    """Sockets with their multicast destination factory: IPv4 (by interface address) or
+    IPv6 (by interface index)."""
+    socks = []
+    if ifindexes is not None:
+        for idx in ifindexes:
+            try:
+                socks.append((_mcast_socket6(idx, (sources or {}).get(idx)), idx))
+            except OSError:
+                pass
+    else:
+        for ip in (iface_ips or [None]):
+            try:
+                socks.append((_mcast_socket(ip), None))
+            except OSError:
+                pass
+    return socks
+
+
+def _host_addr(addr):
+    """The sender address of a datagram without its IPv6 zone ("fe80::1%eth0" -> "fe80::1")."""
+    return addr[0].split("%")[0]
+
+
+def mdns_browse(iface_ips, duration=2.5, ifindexes=None, sources=None):
+    """DNS-SD browse via legacy-unicast multicast queries, over IPv4 or (with `ifindexes`) IPv6.
+
+    Returns {ip: {"services": [..], "instances": [..], "hostname": str, "txt": {}, "ipv4": str,
+    "ipv6": [..]}}. "ipv4"/"ipv6" are the addresses the device announces for its host name.
     """
     hosts = {}
-    host_ips = {}  # hostname.local -> ip (from A records)
+    host_ips = {}   # hostname.local -> IPv4 (A records)
+    host_ips6 = {}  # hostname.local -> [IPv6] (AAAA records)
 
     def entry(ip):
         return hosts.setdefault(ip, {"services": set(), "instances": set(), "hostname": "", "txt": {}})
 
     def handle(data, addr):
         msg = dnsmsg.parse_message(data)
-        e = entry(addr[0])
+        e = entry(_host_addr(addr))
         for rec in msg["records"]:
             t, name, val = rec["type"], rec["name"], rec["value"]
             if t == dnsmsg.T_PTR and val:
@@ -248,6 +299,12 @@ def mdns_browse(iface_ips, duration=2.5):
                 host_ips[name] = val
                 if val == addr[0]:
                     e["hostname"] = name.rstrip(".")
+            elif t == dnsmsg.T_AAAA and val:
+                lst = host_ips6.setdefault(name, [])
+                if val not in lst and len(lst) < 8:
+                    lst.append(val)
+                if val == _host_addr(addr):
+                    e["hostname"] = name.rstrip(".")
             elif t == dnsmsg.T_SRV and val:
                 target = val["target"].rstrip(".")
                 if target and not e["hostname"]:
@@ -258,20 +315,19 @@ def mdns_browse(iface_ips, duration=2.5):
                         e["txt"][k] = val[k][:80]
 
     service_types = set()
-    socks = []
+    socks = _open_mcast(iface_ips, ifindexes, sources)
+
+    def dest(idx):
+        return ("ff02::fb", 5353, 0, idx) if idx is not None else MDNS_ADDR
+
     try:
-        for ip in (iface_ips or [None]):
-            try:
-                socks.append(_mcast_socket(ip))
-            except OSError:
-                pass
         q = dnsmsg.build_query([("_services._dns-sd._udp.local", dnsmsg.T_PTR)], txid=0x1111)
-        for s in socks:
+        for s, idx in socks:
             try:
-                s.sendto(q, MDNS_ADDR)
+                s.sendto(q, dest(idx))
             except OSError:
                 pass
-        for s in socks:
+        for s, _ in socks:
             _collect(s, duration / 2.0 / max(1, len(socks)), handle)
         common = {"_http._tcp.local", "_workstation._tcp.local", "_smb._tcp.local",
                   "_airplay._tcp.local", "_googlecast._tcp.local", "_ipp._tcp.local",
@@ -281,15 +337,15 @@ def mdns_browse(iface_ips, duration=2.5):
         types = sorted((service_types | common))
         for i in range(0, len(types), 12):
             q = dnsmsg.build_query([(t, dnsmsg.T_PTR) for t in types[i:i + 12]], txid=0x2222 + i)
-            for s in socks:
+            for s, idx in socks:
                 try:
-                    s.sendto(q, MDNS_ADDR)
+                    s.sendto(q, dest(idx))
                 except OSError:
                     pass
-        for s in socks:
+        for s, _ in socks:
             _collect(s, duration / 2.0 / max(1, len(socks)), handle)
     finally:
-        for s in socks:
+        for s, _ in socks:
             s.close()
     for name, ip in host_ips.items():
         e = entry(ip)
@@ -298,6 +354,10 @@ def mdns_browse(iface_ips, duration=2.5):
     for e in hosts.values():
         e["services"] = sorted(e["services"])
         e["instances"] = sorted(e["instances"])
+        key = (e["hostname"] + ".") if e["hostname"] and not e["hostname"].endswith(".") else e["hostname"]
+        names = [n for n in (e["hostname"], key) if n]
+        e["ipv4"] = next((host_ips[n] for n in names if n in host_ips), "")
+        e["ipv6"] = next((host_ips6[n] for n in names if n in host_ips6), [])
     return {ip: e for ip, e in hosts.items() if e["services"] or e["hostname"] or e["instances"]}
 
 
@@ -311,15 +371,16 @@ def parse_ssdp(data):
     return headers
 
 
-def ssdp_discover(iface_ips, duration=2.5):
-    """Return {ip: {"location": url, "server": str, "st": [..]}}."""
+def ssdp_discover(iface_ips, duration=2.5, ifindexes=None):
+    """Return {ip: {"location": url, "server": str, "st": [..]}} (IPv6 with `ifindexes`)."""
     found = {}
-    msg = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n"
-           "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n").encode()
+    host = "[FF02::C]:1900" if ifindexes is not None else "239.255.255.250:1900"
+    msg = ("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\n"
+           "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n" % host).encode()
 
     def handle(data, addr):
         h = parse_ssdp(data)
-        e = found.setdefault(addr[0], {"location": "", "server": "", "st": []})
+        e = found.setdefault(_host_addr(addr), {"location": "", "server": "", "st": []})
         if h.get("location") and not e["location"]:
             e["location"] = h["location"]
         if h.get("server") and not e["server"]:
@@ -328,23 +389,58 @@ def ssdp_discover(iface_ips, duration=2.5):
         if st and st not in e["st"] and len(e["st"]) < 12:
             e["st"].append(st)
 
-    socks = []
+    socks = _open_mcast(iface_ips, ifindexes)
     try:
-        for ip in (iface_ips or [None]):
-            try:
-                socks.append(_mcast_socket(ip))
-            except OSError:
-                pass
-        for s in socks:
+        for s, idx in socks:
             for _ in range(2):
                 try:
-                    s.sendto(msg, ("239.255.255.250", 1900))
+                    s.sendto(msg, ("ff02::c", 1900, 0, idx) if idx is not None else ("239.255.255.250", 1900))
                 except OSError:
                     pass
-        for s in socks:
+        for s, _ in socks:
             _collect(s, duration / max(1, len(socks)), handle)
     finally:
-        for s in socks:
+        for s, _ in socks:
+            s.close()
+    return found
+
+
+# --------------------------------------------------------------- WS-Discovery
+_WSD_PROBE = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" '
+    'xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" '
+    'xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery">'
+    '<soap:Header><wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>'
+    '<wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>'
+    '<wsa:MessageID>urn:uuid:%s</wsa:MessageID></soap:Header>'
+    '<soap:Body><wsd:Probe/></soap:Body></soap:Envelope>')
+
+
+def wsd_discover(iface_ips, duration=2.0, ifindexes=None, sources=None):
+    """WS-Discovery probe (Windows PCs, printers, scanners, many NAS).
+
+    Returns {ip: {"types": str}}; with `ifindexes` over IPv6 (ff02::c), else IPv4."""
+    import uuid
+    found = {}
+    msg = (_WSD_PROBE % uuid.uuid4()).encode()
+
+    def handle(data, addr):
+        m = re.search(rb"<[^>]*:?Types>([^<]*)<", data)
+        found.setdefault(_host_addr(addr), {"types": (m.group(1).decode("utf-8", "replace")[:200] if m else "")})
+
+    socks = _open_mcast(iface_ips, ifindexes, sources)
+    try:
+        for s, idx in socks:
+            for _ in range(2):
+                try:
+                    s.sendto(msg, ("ff02::c", 3702, 0, idx) if idx is not None else ("239.255.255.250", 3702))
+                except OSError:
+                    pass
+        for s, _ in socks:
+            _collect(s, duration / max(1, len(socks)), handle)
+    finally:
+        for s, _ in socks:
             s.close()
     return found
 
@@ -373,7 +469,9 @@ _TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
 
 def http_info(ip, port, timeout=2.0):
     scheme = "https" if port in (443, 5001, 8443) else "http"
-    url = "%s://%s:%d/" % (scheme, ip, port)
+    if "%" in ip:
+        return None
+    url = "%s://%s:%d/" % (scheme, "[%s]" % ip if ":" in ip else ip, port)
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE

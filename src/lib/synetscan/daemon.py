@@ -7,7 +7,7 @@ import socketserver
 import threading
 import time
 
-from . import __version__, netinfo, probes
+from . import __version__, ipv6, netinfo, probes
 from . import config as config_mod
 from .classify import PORT_NAMES, TYPES
 from .scanner import ScanCancelled, Scanner
@@ -66,8 +66,8 @@ class Service:
             with self.store.lock:
                 cfg = dict(self.store.config)
             result = Scanner(cfg, progress=self._progress, cancel=self.cancel).run()
+            result["trigger"] = trigger
             summary = self.store.merge_scan(result)
-            summary["trigger"] = trigger
             self.last_error = ""
         except ScanCancelled:
             log.info("scan cancelled")
@@ -118,8 +118,16 @@ class Service:
         devices = self.store.list_devices()
         ifaces = netinfo.interfaces()
         gws = netinfo.default_gateways()
+        v6, old = {}, {}
+        for a in sorted(ipv6.own_addresses(), key=lambda a: a.get("deprecated", False)):
+            if a["scope"] != "link":
+                v6.setdefault(a["dev"], []).append("%s/%d" % (a["ip"], a["prefix"]))
+                if a.get("deprecated"):
+                    old.setdefault(a["dev"], []).append("%s/%d" % (a["ip"], a["prefix"]))
         for i in ifaces:
             i["gateway"] = gws.get(i["name"], "")
+            i["ipv6"] = v6.get(i["name"], [])
+            i["ipv6_deprecated"] = old.get(i["name"], [])
         types = {}
         for d in devices:
             if d.get("online"):

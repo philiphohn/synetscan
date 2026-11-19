@@ -1,16 +1,45 @@
 """The scan engine: discovery, enrichment and classification."""
 import concurrent.futures as cf
 import ipaddress
+import re
 import threading
 import time
 
-from . import netinfo, oui, probes
+from . import ipv6, netinfo, oui, probes
 from .classify import DEFAULT_PORTS, bogus_model, classify, join_model, junk_name, generic_upnp_name
 from .targets import build_targets
 from .util import is_random_mac, log, normalize_mac, now
 
 DISCOVERY_PORTS = [80, 443, 22, 445, 62078, 8080, 1400, 8001, 8009]
 ARP_SETTLE = 8.0  # seconds until a stale ARP entry of a vanished host is purged
+
+
+_NUMBER_LIST = re.compile(r"^[\d,.\s]+$")
+_RAOP_PREFIX = re.compile(r"^[0-9A-Fa-f]{12}@")
+
+
+def split_proxy_arp(arp, target_set, own, gateway_ips):
+    """{ip: mac} for addresses whose ARP answer came from a MAC that answers for several IPs.
+
+    The MAC stays with one address: the gateway if it is among them, else the lowest."""
+    mac_ips = {}
+    for a, (m, _d) in arp.items():
+        if a in target_set and a not in own:
+            mac_ips.setdefault(m, []).append(a)
+    out = {}
+    for m, ips in mac_ips.items():
+        if len(ips) > 1:
+            keep = next((a for a in ips if a in gateway_ips), min(ips, key=lambda a: int(ipaddress.IPv4Address(a))))
+            out.update({a: m for a in ips if a != keep})
+            log.info("proxy ARP: %s answers for %s; kept on %s", m, ", ".join(sorted(ips)), keep)
+    return out
+
+
+def _host_order(key):
+    """IPv4 devices by address, then IPv6-only devices ("v6:<mac>")."""
+    if key.startswith("v6:"):
+        return (1, 0, key)
+    return (0, int(ipaddress.IPv4Address(key)), "")
 
 
 class ScanCancelled(Exception):
@@ -139,9 +168,91 @@ class Scanner:
             probes.udp_poke(ip)
         second_poke = time.monotonic()
 
+        # ---- IPv6 (in the background, while IPv4 devices are identified)
+        v6 = {}
+        v6_thread = None
+        if cfg.get("use_ipv6", True):
+            def run_v6():
+                try:
+                    names = ipv6.candidate_interfaces(cfg.get("excluded_interfaces") or ())
+                    known = [(m, d) for m, d in arp.values() if not netinfo.is_virtual(d)]
+                    v6.update(ipv6.discover(names, known,
+                                            use_mdns=cfg.get("use_mdns", True), use_ssdp=cfg.get("use_ssdp", True)))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("IPv6 discovery failed: %s", e)
+                    v6.clear()
+                    v6["error"] = str(e)
+            v6_thread = threading.Thread(target=run_v6, name="ipv6", daemon=True)
+            v6_thread.start()
+
+        # A router doing proxy ARP (e.g. for VPN clients) answers with its own MAC for other
+        # hosts' addresses. Such a MAC belongs to one device only: the gateway address if it is
+        # one of them, else the lowest. The other addresses become devices of their own, known
+        # by IP (NetBIOS may still tell their real MAC).
+        proxy_arp = split_proxy_arp(arp, target_set, own, set(gateways.values()))
+
         # ---- phase 2: enrichment
         ports = sorted({int(p) for p in cfg.get("ports", DEFAULT_PORTS) if 0 < int(p) < 65536})
         hosts = {}
+
+        def apply_mdns(dev, md):
+            if md.get("hostname"):
+                dev["mdns_name"] = md["hostname"]
+            dev["services"] = sorted(set(dev.get("services") or []) | set(md["services"]))
+            dev["instances"] = md["instances"][:10]
+            txt = md["txt"]
+            model = next((v for v in (txt.get("md"), txt.get("model"), txt.get("ty"), txt.get("usb_mdl"), txt.get("am"))
+                          if v and not _NUMBER_LIST.match(v)), "")  # RAOP "md=0,1,2" lists metadata types
+            if model:
+                dev["model"] = model
+            # AirPlay/RAOP instances are "<MAC>@<name>"
+            names = [_RAOP_PREFIX.sub("", n) for n in [txt.get("fn")] + md["instances"] if n]
+            names = [n for n in names if n and not junk_name(n)]
+            if names:
+                dev["friendly"] = names[0]
+
+        def apply_ssdp(dev, sd):
+            dev["ssdp_server"] = sd["server"]
+            if not sd["location"]:
+                return
+            desc = probes.upnp_description(sd["location"])
+            if not desc:
+                return
+            dev["upnp"] = desc
+            model = join_model(desc.get("manufacturer"), desc.get("modelName"))
+            if model and not dev.get("model"):
+                dev["model"] = model
+            fn = desc.get("friendlyName", "")
+            if fn and not junk_name(fn) and not generic_upnp_name(fn):
+                dev["friendly"] = fn
+            elif model and not dev.get("friendly"):
+                dev["friendly"] = model
+
+        def apply_http(dev, addr, open_ports):
+            if not cfg.get("use_http", True):
+                return
+            for p in (80, 8080, 443, 5000):
+                if p in open_ports:
+                    info_http = probes.http_info(addr, p)
+                    if info_http and (info_http["title"] or info_http["server"]):
+                        dev["http"] = info_http
+                        return
+
+        def port_scan(addr, already=()):
+            open_ports = set(already)
+            for i in range(0, len(ports), 32):
+                self._check()
+                chunk = [p for p in ports[i:i + 32] if p not in open_ports]
+                res = probes.tcp_probe(addr, chunk, timeout + 0.3)
+                open_ports.update(p for p, st in res.items() if st == "open")
+            return open_ports
+
+        def finish(dev):
+            mac = dev.get("mac", "")
+            dev["vendor"] = oui.lookup(mac) if mac else ""
+            if bogus_model(dev.get("model"), dev["vendor"]):
+                dev["model"] = ""
+            dev["random_mac"] = is_random_mac(mac)
 
         def enrich(ip):
             info = alive[ip]
@@ -151,15 +262,16 @@ class Scanner:
                 dev["mac"] = own[ip]["mac"]
                 dev["self"] = True
                 dev["iface"] = own[ip]["name"]
+            elif ip in proxy_arp:
+                dev["proxy_arp"] = proxy_arp[ip]
+                dev["iface"] = arp[ip][1]
             elif ip in arp:
                 dev["mac"] = arp[ip][0]
                 dev["iface"] = arp[ip][1]
-            open_ports = set(info["open"])
-            for i in range(0, len(ports), 32):
-                self._check()
-                chunk = [p for p in ports[i:i + 32] if p not in open_ports]
-                res = probes.tcp_probe(ip, chunk, timeout + 0.3)
-                open_ports.update(p for p, st in res.items() if st == "open")
+                shared = sorted(a for a, m in proxy_arp.items() if m == dev["mac"])
+                if shared:
+                    dev["proxy_arp_for"] = shared
+            open_ports = port_scan(ip, info["open"])
             dev["ports"] = sorted(open_ports)
             if cfg.get("use_dns", True):
                 dev["hostname"] = probes.reverse_dns(ip)
@@ -172,45 +284,16 @@ class Scanner:
                         dev["mac"] = normalize_mac(nb["mac"])
             md = mdns.get(ip)
             if md:
-                dev["mdns_name"] = md["hostname"]
-                dev["services"] = md["services"]
-                dev["instances"] = md["instances"][:10]
-                txt = md["txt"]
-                dev["model"] = txt.get("md") or txt.get("model") or txt.get("ty") or txt.get("usb_mdl") or txt.get("am") or ""
-                names = [n for n in [txt.get("fn")] + md["instances"] if n and not junk_name(n)]
-                if names:
-                    dev["friendly"] = names[0]
+                apply_mdns(dev, md)
             elif cfg.get("use_mdns", True) and ip not in own:
                 name = probes.mdns_reverse(ip, 0.6)
                 if name:
                     dev["mdns_name"] = name
             sd = ssdp.get(ip)
             if sd:
-                dev["ssdp_server"] = sd["server"]
-                if sd["location"]:
-                    desc = probes.upnp_description(sd["location"])
-                    if desc:
-                        dev["upnp"] = desc
-                        model = join_model(desc.get("manufacturer"), desc.get("modelName"))
-                        if model and not dev.get("model"):
-                            dev["model"] = model
-                        fn = desc.get("friendlyName", "")
-                        if fn and not junk_name(fn) and not generic_upnp_name(fn):
-                            dev["friendly"] = fn
-                        elif model and not dev.get("friendly"):
-                            dev["friendly"] = model
-            if cfg.get("use_http", True):
-                for p in (80, 8080, 443, 5000):
-                    if p in open_ports:
-                        info_http = probes.http_info(ip, p)
-                        if info_http and (info_http["title"] or info_http["server"]):
-                            dev["http"] = info_http
-                            break
-            mac = dev.get("mac", "")
-            dev["vendor"] = oui.lookup(mac) if mac else ""
-            if bogus_model(dev.get("model"), dev["vendor"]):
-                dev["model"] = ""
-            dev["random_mac"] = is_random_mac(mac)
+                apply_ssdp(dev, sd)
+            apply_http(dev, ip, open_ports)
+            finish(dev)
             hosts[ip] = dev
             return dev
 
@@ -242,6 +325,24 @@ class Scanner:
                     log.info("dropping stale ARP entry %s", ip)
                     hosts.pop(ip, None)
 
+        self._merge_self(hosts, gateways)
+        v6_status = {"enabled": bool(cfg.get("use_ipv6", True))}
+        if v6_thread is not None:
+            v6_thread.join(timeout=20)
+            if "error" in v6 or not v6:
+                v6_status["error"] = v6.get("error") or "timeout"
+            else:
+                try:
+                    self._merge_ipv6(v6, hosts, ifaces, mdns, ports, port_scan, apply_mdns, apply_ssdp, apply_http, finish, workers)
+                except ScanCancelled:
+                    raise
+                except Exception as e:  # noqa: BLE001 - IPv6 must never cost the IPv4 results
+                    log.exception("IPv6 merge failed")
+                    v6_status["error"] = str(e)
+            v6_status.update(ifaces=list(v6.get("ifaces") or []), routable=bool(v6.get("routable")),
+                             with_ipv6=sum(1 for d in hosts.values() if d.get("ipv6")),
+                             only=sum(1 for d in hosts.values() if d.get("ipv6") and not d.get("ip")))
+
         gw_ips = set(gateways.values())
         for dev in hosts.values():
             dev["type"] = classify(dev, gateways=gw_ips, own_ips=set(own))
@@ -257,7 +358,111 @@ class Scanner:
             "target_count": len(targets),
             "ping": use_ping,
             "_target_ips": target_set,
-            "hosts": [hosts[ip] for ip in sorted(hosts, key=lambda a: int(ipaddress.IPv4Address(a)))],
+            "_v6_ifaces": set(v6.get("ifaces") or []) if "error" not in v6 else None,
+            "ipv6": v6_status,
+            "hosts": [hosts[k] for k in sorted(hosts, key=_host_order)],
         }
         log.info("scan finished: %d hosts in %.1fs", len(hosts), result["duration"])
         return result
+
+    def _merge_self(self, hosts, gateways):
+        """A NAS with several connected ports is one device: keep the port with the default
+        gateway (else the first) and list the other addresses on it."""
+        selfs = [k for k, d in hosts.items() if d.get("self")]
+        if len(selfs) < 2:
+            return
+        gw_ifaces = set(gateways)
+        selfs.sort(key=lambda k: (hosts[k].get("iface") not in gw_ifaces, _host_order(k)))
+        main = hosts[selfs[0]]
+        main["other_ips"] = []
+        for k in selfs[1:]:
+            d = hosts.pop(k)
+            main["other_ips"].append("%s (%s)" % (d["ip"], d.get("iface", "")))
+            main["ports"] = sorted(set(main.get("ports") or []) | set(d.get("ports") or []))
+
+    def _merge_ipv6(self, v6, hosts, ifaces, mdns, ports, port_scan, apply_mdns, apply_ssdp, apply_http, finish, workers):
+        """Attach IPv6 addresses to the devices found over IPv4 and identify IPv6-only ones."""
+        own_v6, deprecated = {}, set()
+        for a in ipv6.own_addresses():
+            own_v6.setdefault(a["dev"], []).append(a["ip"])
+            if a.get("deprecated"):
+                deprecated.add(a["ip"])
+        prefixes = v6.get("prefixes") or {}
+        own_macs = {i["mac"] for i in ifaces if i.get("mac")}
+        by_mac = {d["mac"]: d for d in hosts.values() if d.get("mac")}
+        # host names announced over mDNS (on IPv4 and IPv6) with their AAAA records
+        aaaa = {}
+        for md in list(mdns.values()) + list(v6.get("mdns", {}).values()):
+            if md.get("hostname") and md.get("ipv6"):
+                aaaa.setdefault(md["hostname"].lower(), set()).update(md["ipv6"])
+        for d in hosts.values():
+            extra = set()
+            if d.get("self"):
+                for dev_name in [d.get("iface")] + [o.rsplit("(", 1)[-1].rstrip(")") for o in d.get("other_ips") or []]:
+                    extra.update(own_v6.get(dev_name, []))
+            if d.get("mdns_name"):
+                found = [a for a in aaaa.get(d["mdns_name"].lower(), ()) if ipv6.is_ipv6(a)]
+                extra.update(ipv6.on_link_filter(found, prefixes.get(d.get("iface"), ())))
+            if extra:
+                d["ipv6"] = ipv6.sort_addresses(set(d.get("ipv6") or []) | extra, deprecated)
+            if d.get("self") and deprecated & set(d.get("ipv6") or []):
+                d["ipv6_deprecated"] = sorted(deprecated & set(d["ipv6"]))
+        only = []
+        for mac, n in v6.get("neighbors", {}).items():
+            if mac in own_macs:
+                continue
+            d = by_mac.get(mac)
+            if d is not None:
+                d["ipv6"] = ipv6.sort_addresses(set(d.get("ipv6") or []) | set(n["addrs"]))
+                if "ndp" not in d["via"]:
+                    d["via"] = sorted(d["via"] + ["ndp"])
+            else:
+                only.append((mac, n))
+        mdns6, ssdp6, wsd6 = v6.get("mdns", {}), v6.get("ssdp", {}), v6.get("wsd", {})
+
+        neigh = dict(only)
+
+        def enrich6(mac):
+            n = neigh[mac]
+            addrs = n["addrs"]
+            best = addrs[0]
+            target = best if ipv6.kind(best) != "link" else "%s%%%s" % (best, n["dev"])
+            dev = {"ip": "", "ipv6": addrs, "mac": mac, "via": ["ndp"], "rtt": None, "iface": n["dev"]}
+            if n["router"]:
+                dev["ipv6_router"] = True
+            dev["ports"] = sorted(port_scan(target))
+            if self.cfg.get("use_dns", True):
+                for a in addrs:
+                    if ipv6.kind(a) != "link":
+                        name = probes.reverse_dns(a)
+                        if name:
+                            dev["hostname"] = name
+                            break
+            for a in addrs:
+                if a in mdns6:
+                    apply_mdns(dev, mdns6[a])
+                    dev["via"] = sorted(set(dev["via"]) | {"mdns"})
+                    break
+            for a in addrs:
+                if a in wsd6:
+                    dev["via"] = sorted(set(dev["via"]) | {"wsd"})
+                    types = wsd6[a]["types"].lower()
+                    if "print" in types:
+                        dev["services"] = sorted(set(dev.get("services") or []) | {"_wsd._printer"})
+                    elif "computer" in types:
+                        dev["services"] = sorted(set(dev.get("services") or []) | {"_wsd._workstation"})
+                    break
+            for a in addrs:
+                if a in ssdp6:
+                    apply_ssdp(dev, ssdp6[a])
+                    dev["via"] = sorted(set(dev["via"]) | {"ssdp"})
+                    break
+            web = next((a for a in addrs if ipv6.kind(a) != "link"), "")
+            if web:
+                apply_http(dev, web, set(dev["ports"]))
+            finish(dev)
+            hosts["v6:" + mac] = dev
+
+        if only:
+            self._map(enrich6, sorted(neigh), max(8, workers // 2), "identify", lambda: len(hosts))
+            log.info("IPv6: %d device(s) without IPv4", len(only))

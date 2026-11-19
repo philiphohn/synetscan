@@ -80,8 +80,9 @@
     return d.toLocaleDateString(LOCALE, Object.assign({ year: "numeric", month: "2-digit", day: "2-digit" }, o)) + " " +
       d.toLocaleTimeString(LOCALE, Object.assign({ hour: "2-digit", minute: "2-digit" }, o));
   }
-  function fmtNum(n, digits) {
-    return Number(n).toLocaleString(LOCALE, { maximumFractionDigits: digits === undefined ? 1 : digits });
+  function fmtNum(n, digits, fixed) {
+    var d = digits === undefined ? 1 : digits;
+    return Number(n).toLocaleString(LOCALE, { maximumFractionDigits: d, minimumFractionDigits: fixed ? d : 0 });
   }
   function rel(ts) {
     if (!ts) return T("never");
@@ -536,6 +537,9 @@
       return '<div class="iface"><div class="head"><span class="dot' + (i.up ? " on" : "") + '"></span>' + esc(i.name) +
         '<span class="faint" style="font-weight:400">' + esc(i.network) + '</span></div><dl class="kv">' +
         "<dt>" + esc(T("iface_ip")) + '</dt><dd class="mono">' + esc(i.ip + "/" + i.prefix) + "</dd>" +
+        ((i.ipv6 || []).length ? "<dt>" + esc(T("iface_ipv6")) + '</dt><dd class="mono">' + i.ipv6.map(function (a) {
+          return esc(a) + ((i.ipv6_deprecated || []).indexOf(a) >= 0 ? ' <span class="faint">(' + esc(T("deprecated")) + ")</span>" : "");
+        }).join("<br>") + "</dd>" : "") +
         (i.gateway ? "<dt>" + esc(T("iface_gateway")) + '</dt><dd class="mono">' + esc(i.gateway) + "</dd>" : "") +
         (i.mac ? "<dt>" + esc(T("iface_mac")) + '</dt><dd class="mono">' + esc(i.mac.toUpperCase()) + "</dd>" : "") +
         (i.speed ? "<dt>" + esc(T("iface_speed")) + "</dt><dd>" + esc(i.speed >= 1000 ? i.speed / 1000 + " Gbps" : i.speed + " Mbps") + "</dd>" : "") +
@@ -615,14 +619,18 @@
           render: function (r) { return '<span class="status ' + (r.online ? "on" : "off") + '"><span class="dot' + (r.online ? " on" : "") + '"></span>' + esc(r.online ? T("online") : T("offline")) + "</span>"; } },
         { key: "display_name", title: T("col_name"), width: "auto", sortVal: function (r) { return r.display_name.toLowerCase(); },
           render: function (r) {
-            var sub = r.name || r.friendly ? (r.hostname || r.mdns_name || r.netbios || r.model || "") : (r.model || "");
+            var cands = r.name || r.friendly ? [r.model, r.hostname, r.mdns_name, r.netbios] : [r.model];
+            var sub = cands.filter(function (x) { return x && !/^[0-9a-f]{8,}(\.local)?$/i.test(x); })[0] || "";
             var badges = (r.self ? ' <span class="badge gray">' + esc(T("this_nas")) + "</span>" : "") +
               (r.gateway ? ' <span class="badge gray">' + esc(T("gateway")) + "</span>" : "") +
+              (!r.ip && (r.ipv6 || []).length ? ' <span class="badge gray" title="' + esc(T("ipv6_only")) + '">IPv6</span>' : "") +
               (!r.known ? ' <span class="badge new">' + esc(T("new_badge")) + "</span>" : "");
             return '<div class="cell-name">' + devIcon(r.type) + '<div style="min-width:0;overflow:hidden"><div class="nm">' + esc(r.display_name) + badges +
               "</div>" + (sub && sub !== r.display_name ? '<div class="sub nm">' + esc(sub) + "</div>" : "") + "</div></div>";
           }, title_attr: function (r) { return r.display_name; } },
-        { key: "ip", title: T("col_ip"), width: "128px", sortVal: function (r) { return ipNum(r.ip); }, render: function (r) { return '<span class="mono">' + esc(r.ip) + "</span>"; } },
+        { key: "ip", title: T("col_ip"), width: "142px", sortVal: function (r) { return r.ip ? ipNum(r.ip) : 5e9; },
+          render: function (r) { return '<span class="mono nm">' + esc(r.ip || r.address || "") + "</span>"; },
+          title_attr: function (r) { return [r.ip].concat(r.other_ips || [], r.ipv6 || []).filter(Boolean).join("\n"); } },
         { key: "mac", title: T("col_mac"), width: "140px", hide: 5, render: function (r) { return '<span class="mono">' + esc((r.mac || "–").toUpperCase()) + "</span>"; } },
         { key: "vendor", title: T("col_vendor"), width: "150px", hide: 3, render: function (r) { return r.vendor ? esc(r.vendor) : '<span class="faint">' + esc(r.random_mac ? T("private_mac") : "–") + "</span>"; }, title_attr: function (r) { return r.vendor || ""; } },
         { key: "type", title: T("col_type"), width: "132px", hide: 1, sortVal: function (r) { return typeName(r.type); }, render: function (r) { return esc(typeName(r.type)); },
@@ -681,7 +689,7 @@
       { text: T("wake"), icon: "power", disabled: !(one && one.mac && !one.self), onClick: function () { wake(one); } },
       { text: T("mark_known"), icon: "check", disabled: !rows.some(function (r) { return !r.known; }), onClick: function () { markKnown(rows); } },
       "-",
-      { text: T("copy_ip"), icon: "copy", disabled: !one, onClick: function () { copyText(one.ip); } },
+      { text: T("copy_ip"), icon: "copy", disabled: !one || !(one.ip || one.address), onClick: function () { copyText(one.ip || one.address); } },
       { text: T("copy_mac"), icon: "copy", disabled: !(one && one.mac), onClick: function () { copyText(one.mac.toUpperCase()); } },
       "-",
       { text: T("del"), icon: "trash", onClick: function () { deleteDevices(rows); } },
@@ -710,13 +718,19 @@
   function webAllowed() { return S.local !== false; }
   function openWeb(url) { if (webAllowed()) window.open(url, "_blank", "noopener"); }
 
+  function webHost(d) {
+    if (d.ip) return d.ip;
+    var v6 = (d.ipv6 || []).filter(function (a) { return !/^fe[89ab]/i.test(a); })[0];
+    return v6 ? "[" + v6 + "]" : "";
+  }
   function webUrl(d) {
-    var p = d.ports || [];
+    var p = d.ports || [], host = webHost(d);
+    if (!host) return "";
     var order = [[443, "https"], [5001, "https"], [80, "http"], [8080, "http"], [5000, "http"], [8443, "https"], [8123, "http"], [32400, "http"]];
     for (var i = 0; i < order.length; i++) {
       if (p.indexOf(order[i][0]) >= 0) {
         var port = order[i][0];
-        return order[i][1] + "://" + d.ip + ((port === 80 || port === 443) ? "" : ":" + port) + "/";
+        return order[i][1] + "://" + host + ((port === 80 || port === 443) ? "" : ":" + port) + "/";
       }
     }
     return "";
@@ -753,7 +767,7 @@
       if (S.filter === "unknown" && d.known) return false;
       if (S.typeFilter && d.type !== S.typeFilter) return false;
       if (q) {
-        var hay = [d.display_name, d.ip, d.mac, d.vendor, d.hostname, d.mdns_name, d.netbios, d.model, d.notes, typeName(d.type)].join(" ").toLowerCase();
+        var hay = [d.display_name, d.ip, (d.other_ips || []).join(" "), (d.ipv6 || []).join(" "), d.mac, d.vendor, d.hostname, d.mdns_name, d.netbios, d.model, d.notes, typeName(d.type)].join(" ").toLowerCase();
         if (hay.indexOf(q) < 0 && hay.replace(/:/g, "").indexOf(q.replace(/:/g, "")) < 0) return false;
       }
       return true;
@@ -817,7 +831,12 @@
     var details = '<dl class="kv selectable">' +
       kvRow(T("d_detected_name"), esc(dispNoName(detected))) +
       kvRow(T("d_ip"), esc(d.ip), true) +
+      kvRow(T("d_other_ips"), (d.other_ips || []).map(esc).join("<br>"), true) +
+      kvRow(T("d_ipv6"), (d.ipv6 || []).map(function (a) {
+        return esc(a) + ((d.ipv6_deprecated || []).indexOf(a) >= 0 ? ' <span class="faint" style="font-family:var(--font)">(' + esc(T("deprecated")) + ")</span>" : "");
+      }).join("<br>"), true) +
       kvRow(T("d_mac"), d.mac ? esc(d.mac.toUpperCase()) + (d.random_mac ? '<div class="faint" style="font-family:var(--font)">' + esc(T("d_random")) + "</div>" : "") : "", true) +
+      kvRow(T("d_proxy_arp"), d.proxy_arp ? esc(T("d_proxy_arp_text", d.proxy_arp.toUpperCase())) : "") +
       kvRow(T("d_vendor"), esc(d.vendor)) +
       kvRow(T("d_model"), esc(d.model)) +
       kvRow(T("d_hostname"), esc(d.hostname)) +
@@ -838,7 +857,7 @@
     var services = ports.length ? '<table class="ports-table"><thead><tr><th style="width:90px">' + esc(T("port")) + "</th><th>" + esc(T("service")) + "</th><th style=\"width:90px\"></th></tr></thead><tbody>" +
       ports.map(function (p) {
         var scheme = [443, 5001, 8443, 9443].indexOf(p) >= 0 ? "https" : [80, 81, 5000, 8000, 8008, 8080, 8081, 8123, 8888, 9000, 3000, 32400].indexOf(p) >= 0 ? "http" : "";
-        var url = scheme ? scheme + "://" + d.ip + ((p === 80 || p === 443) ? "" : ":" + p) + "/" : "";
+        var url = scheme && webHost(d) ? scheme + "://" + webHost(d) + ((p === 80 || p === 443) ? "" : ":" + p) + "/" : "";
         var link = !url ? "" : webAllowed() ? '<a href="#" data-web="' + esc(url) + '">' + esc(T("open_link")) + "</a>" :
           '<span class="faint" title="' + esc(T("web_local_only")) + '">' + esc(T("open_link")) + "</span>";
         return '<tr><td class="mono">' + p + "/tcp</td><td>" + esc(portLabel(p)) + "</td><td>" + link + "</td></tr>";
@@ -888,7 +907,7 @@
     evGrid = new Grid($("#ev-grid"), {
       idKey: "_k", sort: { key: "ts", dir: -1 }, storeKey: "events", emptyIcon: "activity", empty: function () { return T("no_activity"); },
       columns: [
-        { key: "ts", title: T("col_time"), width: "160px", render: function (r) { return esc(fmtTime(r.ts)); } },
+        { key: "ts", title: T("col_time"), width: "160px", sortVal: function (r) { return r.ts + r._k / 1e6; }, render: function (r) { return esc(fmtTime(r.ts)); } },
         { key: "kind", title: T("col_event"), width: "200px", sortVal: function (r) { return T("ev_" + r.kind); },
           render: function (r) { return '<span class="cell-name"><span class="ev-icon ' + esc(r.kind) + '">' + (I["ev_" + r.kind] || "") + "</span>" + esc(T("ev_" + r.kind)) + "</span>"; } },
         { key: "name", title: T("col_device"), width: "26%", title_attr: function (r) { return r.name; } },
@@ -904,7 +923,7 @@
       columns: [
         { key: "finished", title: T("col_time"), width: "160px", render: function (r) { return esc(fmtTime(r.finished)); } },
         { key: "trigger", title: T("col_trigger"), width: "140px", render: function (r) { return esc(T("trig_" + (r.trigger || "manual"))); } },
-        { key: "duration", title: T("col_duration"), width: "100px", render: function (r) { return esc(T("seconds", fmtNum(r.duration))); } },
+        { key: "duration", title: T("col_duration"), width: "100px", render: function (r) { return esc(T("seconds", fmtNum(r.duration, 1, true))); } },
         { key: "found", title: T("col_found"), width: "100px" },
         { key: "new", title: T("col_new"), width: "80px", render: function (r) { return r.new ? '<span class="badge new">' + r.new + "</span>" : "0"; } },
         { key: "offline", title: T("col_offline"), width: "90px" },
@@ -987,6 +1006,7 @@
       chk("s-ping", T("s_use_ping"), c.use_ping) + (pingAvail ? "" : '<div class="hint indent faint">' + esc(T("ping_unavailable")) + "</div>") +
       chk("s-dns", T("s_use_dns"), c.use_dns) + chk("s-netbios", T("s_use_netbios"), c.use_netbios) +
       chk("s-mdns", T("s_use_mdns"), c.use_mdns) + chk("s-ssdp", T("s_use_ssdp"), c.use_ssdp) + chk("s-http", T("s_use_http"), c.use_http) +
+      chk("s-ipv6", T("s_use_ipv6"), c.use_ipv6 !== false) + ipv6Hint() +
       "</div></div>" +
       '<div class="form-section"><h3>' + esc(T("s_perf")) + "</h3>" +
       field(T("s_timeout"), '<select class="select" id="s-timeout" style="width:160px">' + [0.3, 0.6, 1, 1.5, 2, 3].map(function (v) { return opt(v, String(v).replace(".", LANG === "de" ? "," : "."), c.timeout); }).join("") + "</select>") +
@@ -1039,6 +1059,16 @@
     };
   }
 
+  // What the last scan found out about IPv6 on this NAS.
+  function ipv6Hint() {
+    var v = S.status && S.status.last_scan && S.status.last_scan.ipv6;
+    if (!v || v.enabled === false) return "";
+    var text = v.error ? T("ipv6_failed", v.error) :
+      !(v.ifaces || []).length ? T("ipv6_off") + (v.with_ipv6 ? " " + T("ipv6_off_seen", v.with_ipv6) : "") :
+      !v.routable ? T("ipv6_linklocal", v.with_ipv6 || 0) : T("ipv6_ok", v.with_ipv6 || 0, v.only || 0);
+    return '<div class="hint indent faint">' + esc(text) + "</div>";
+  }
+
   function saveSettings() {
     var root = $("#settings-root");
     var excluded = $$("[data-if]", root).filter(function (x) { return !x.checked; }).map(function (x) { return x.getAttribute("data-if"); });
@@ -1049,7 +1079,7 @@
       scan_on_start: $("#s-onstart").checked, offline_after_scans: +$("#s-offline").value,
       ports: $("#s-ports").value,
       use_ping: $("#s-ping").checked, use_dns: $("#s-dns").checked, use_netbios: $("#s-netbios").checked,
-      use_mdns: $("#s-mdns").checked, use_ssdp: $("#s-ssdp").checked, use_http: $("#s-http").checked,
+      use_mdns: $("#s-mdns").checked, use_ssdp: $("#s-ssdp").checked, use_http: $("#s-http").checked, use_ipv6: $("#s-ipv6").checked,
       timeout: +$("#s-timeout").value, threads: +$("#s-threads").value, forget_after_days: +$("#s-forget").value,
     };
     $$(".invalid", root).forEach(function (x) { x.classList.remove("invalid"); });

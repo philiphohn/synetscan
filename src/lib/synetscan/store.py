@@ -12,7 +12,13 @@ MAX_EVENTS = 1000
 MAX_SCANS = 100
 COPY_FIELDS = ("ip", "mac", "vendor", "hostname", "netbios", "workgroup", "mdns_name", "services",
                "instances", "model", "friendly", "upnp", "http", "ports", "rtt", "iface", "via",
-               "random_mac", "self", "gateway", "ssdp_server")
+               "random_mac", "self", "gateway", "ssdp_server", "ipv6", "ipv6_router", "proxy_arp", "other_ips",
+               "proxy_arp_for", "ipv6_deprecated")
+
+
+def primary_address(dev):
+    """The address to show and to open: IPv4, else the first (most global) IPv6 address."""
+    return dev.get("ip") or (dev.get("ipv6") or [""])[0]
 
 
 def device_id(host):
@@ -61,7 +67,7 @@ class Store:
 
     def _event(self, kind, dev, detail="", ts=None):
         self.events.append({"ts": ts or now(), "kind": kind, "id": dev.get("id"),
-                            "name": display_name(dev), "ip": dev.get("ip", ""),
+                            "name": display_name(dev), "ip": primary_address(dev),
                             "mac": dev.get("mac", ""), "detail": detail})
 
     # ------------------------------------------------------------------ scans
@@ -80,6 +86,10 @@ class Store:
                     old = self.devices.pop("ip:" + host["ip"])
                     old["id"] = did
                     self.devices[did] = old
+                if host.get("self"):
+                    # 1.1.0 listed a NAS with several ports once per port: keep one entry
+                    for other in [k for k, v in self.devices.items() if v.get("self") and k != did]:
+                        del self.devices[other]
                 dev = self.devices.get(did)
                 if dev is None:
                     dev = {"id": did, "first_seen": ts, "name": "", "notes": "", "type_user": "",
@@ -94,15 +104,28 @@ class Store:
                     v = host.get(k)
                     if v not in (None, "", [], {}) or k in ("ports", "rtt", "via"):
                         dev[k] = v
-                    elif k in ("self", "gateway"):
+                    elif k in ("self", "gateway", "ipv6_router", "proxy_arp", "other_ips", "proxy_arp_for", "ipv6_deprecated"):
                         dev.pop(k, None)
+                if "ipv6" in host:  # the scan looked at IPv6: its list is the current one
+                    if host["ipv6"]:
+                        dev["ipv6"] = host["ipv6"]
+                    else:
+                        dev.pop("ipv6", None)
                 if bogus_model(dev.get("model"), dev.get("vendor")):
                     dev.pop("model", None)  # a scan leaves it empty, which would keep the old value
+                if host.get("proxy_arp_for"):
+                    # this MAC also answers for other hosts (proxy ARP): drop what earlier
+                    # versions merged into it from them – names, pages, their IPs
+                    for k in ("netbios", "workgroup", "hostname", "mdns_name", "friendly", "model",
+                              "http", "services", "instances", "upnp"):
+                        if not host.get(k):
+                            dev.pop(k, None)
+                    dev["ip_history"] = [a for a in dev.get("ip_history", []) if a not in host["proxy_arp_for"]]
                 dev["type_auto"] = host.get("type", "unknown")
                 dev["last_seen"] = ts
                 dev["online"] = True
                 dev["missed"] = 0
-                if old_ip and old_ip != host["ip"]:
+                if old_ip and host.get("ip") and old_ip != host["ip"] and old_ip not in (host.get("proxy_arp_for") or ()):
                     hist = [h for h in dev.get("ip_history", []) if h != old_ip]
                     dev["ip_history"] = ([old_ip] + hist)[:5]
                     self._event("ip_changed", dev, "%s → %s" % (old_ip, host["ip"]), ts)
@@ -135,6 +158,10 @@ class Store:
                        "targets": result["targets"], "target_count": result["target_count"],
                        "found": len(result["hosts"]), "new": new, "offline": offline,
                        "online_again": back, "ip_changed": changed}
+            if result.get("ipv6"):
+                summary["ipv6"] = result["ipv6"]
+            if result.get("trigger"):
+                summary["trigger"] = result["trigger"]
             if first_scan and result["hosts"]:
                 self.events.append({"ts": ts, "kind": "baseline", "id": None, "name": "",
                                     "ip": "", "mac": "", "detail": str(len(result["hosts"]))})
@@ -145,7 +172,11 @@ class Store:
             return summary
 
     def _in_scope(self, dev, result):
-        """Only mark a device offline if its last IP was part of this scan's targets."""
+        """Only mark a device offline if its last IP was part of this scan's targets. A device
+        known only by IPv6 is in scope when IPv6 discovery ran on its interface."""
+        if not dev.get("ip"):
+            v6 = result.get("_v6_ifaces")
+            return v6 is None or dev.get("iface") in v6
         ips = result.get("_target_ips")
         return ips is None or dev.get("ip") in ips
 
@@ -157,6 +188,7 @@ class Store:
                 d = dict(dev)
                 d["type"] = dev.get("type_user") or dev.get("type_auto") or "unknown"
                 d["display_name"] = display_name(dev)
+                d["address"] = primary_address(dev)
                 d["detected_name"] = display_name(dict(dev, name=""))
                 out.append(d)
             return out
@@ -214,13 +246,16 @@ class Store:
     def export_csv(self):
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["Name", "Status", "Type", "IP", "MAC", "Vendor", "Hostname", "Model",
+        w.writerow(["Name", "Status", "Type", "IP", "IPv6", "MAC", "Vendor", "Hostname", "Model",
                     "Open ports", "Known", "First seen", "Last seen", "Notes"])
         import time as _t
         fmt = lambda ts: _t.strftime("%Y-%m-%d %H:%M:%S", _t.localtime(ts)) if ts else ""  # noqa: E731
-        for d in sorted(self.list_devices(), key=lambda x: tuple(int(p) for p in x.get("ip", "0.0.0.0").split("."))):
+        def order(x):
+            ip = x.get("ip") or ""
+            return (0, tuple(int(p) for p in ip.split("."))) if ip else (1, (primary_address(x),))
+        for d in sorted(self.list_devices(), key=order):
             w.writerow([d["display_name"], "online" if d.get("online") else "offline", d["type"],
-                        d.get("ip", ""), d.get("mac", ""), d.get("vendor", ""),
+                        d.get("ip", ""), " ".join(d.get("ipv6") or []), d.get("mac", ""), d.get("vendor", ""),
                         d.get("hostname") or d.get("mdns_name") or d.get("netbios") or "",
                         d.get("model", ""), " ".join(str(p) for p in d.get("ports", [])),
                         "yes" if d.get("known") else "no", fmt(d.get("first_seen")),

@@ -19,6 +19,7 @@ DEFAULTS = {
     "use_mdns": True,
     "use_ssdp": True,
     "use_http": True,
+    "use_ipv6": True,                 # neighbour discovery, mDNS and SSDP over IPv6
     "offline_after_scans": 1,         # missed scans before a device is shown offline
     "forget_after_days": 0,           # 0 = never remove offline devices
 }

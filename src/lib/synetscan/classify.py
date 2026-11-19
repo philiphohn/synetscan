@@ -106,6 +106,9 @@ def classify(dev, gateways=(), own_ips=()):
         return "phone"
     if 22 in ports:
         return "server"
+    # weak signal last: Thread border routers (HomePod, Nest…) also announce IPv6 routes
+    if dev.get("ipv6_router"):
+        return "router"
     return "unknown"
 
 
@@ -123,7 +126,7 @@ _GENERIC_UPNP = re.compile(r"^(upnp\b|igd\b|internet ?gateway ?device|wan ?(conn
 def junk_name(name):
     """Names that identify nothing for a human: random service IDs, UUIDs, generic UPnP classes."""
     name = (name or "").strip()
-    if not name:
+    if len(name) < 2 or name.isdigit():  # e.g. TeamViewer announces its instance as "0"
         return True
     if name.lower().startswith("nearby-presence"):
         return True
@@ -175,4 +178,4 @@ def display_name(dev):
     title = (dev.get("http") or {}).get("title", "")
     if title and not _GENERIC_TITLE.search(title):
         return title
-    return dev.get("ip") or dev.get("mac") or "?"
+    return dev.get("ip") or (dev.get("ipv6") or [""])[0] or dev.get("mac") or "?"

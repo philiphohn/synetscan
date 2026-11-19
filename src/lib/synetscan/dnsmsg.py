@@ -66,6 +66,8 @@ def parse_message(data):
         try:
             if rtype == T_A and rdlen == 4:
                 rec["value"] = socket.inet_ntoa(rdata)
+            elif rtype == T_AAAA and rdlen == 16:
+                rec["value"] = socket.inet_ntop(socket.AF_INET6, rdata)
             elif rtype == T_PTR:
                 rec["value"] = _read_name(data, off)[0]
             elif rtype == T_SRV:

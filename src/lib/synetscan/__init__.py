@@ -1,2 +1,2 @@
 """SynetScan – LAN device scanner for Synology DSM."""
-__version__ = "1.0.4"
+__version__ = "1.1.2"

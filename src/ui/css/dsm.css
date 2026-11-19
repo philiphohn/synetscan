@@ -101,7 +101,7 @@ a:hover { text-decoration: underline; }
 .caret { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; margin-left: 2px; opacity: .7; }
 .toolbar { flex-wrap: nowrap; min-width: 0; }
 .toolbar > * { flex-shrink: 0; }
-.toolbar .select { max-width: 170px; min-width: 96px; flex-shrink: 1; }
+.toolbar .select { max-width: 170px; min-width: 124px; flex-shrink: 1; }
 .toolbar .search { flex: 0 1 200px; min-width: 110px; }
 .toolbar .search .input { width: 100%; }
 .toolbar .tb-group { display: flex; gap: 8px; margin-left: auto; flex-shrink: 1; min-width: 0; }

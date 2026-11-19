@@ -31,6 +31,8 @@ Open it from the DSM main menu like any other Synology app.
 
 - **Finds everything on your LAN.** That includes devices that ignore ping or block every
   port, because SynetScan also uses the NAS's ARP table.
+- **Speaks IPv6 too.** It shows each device's IPv6 addresses and finds devices that have no
+  IPv4 address at all. Phones and PCs with changing privacy addresses stay one device.
 - **Tells you what each device is.** It combines the MAC vendor (about 59,000 entries),
   host names (DNS, NetBIOS, Bonjour/mDNS), UPnP descriptions, open services and web page
   titles to name devices and sort them into 14 types: router, NAS, computer, phone, TV,
@@ -108,7 +110,22 @@ aren't available. SynetScan works around this without privileges:
    a device type: router, NAS, computer, server, phone, tablet, printer, camera,
    TV/media, speaker, console, smart home, network device, virtual machine.
 
-A /24 network takes roughly 8–15 seconds to scan.
+4. **IPv6.** An IPv6 network (/64) has far too many addresses to try one by one, and
+   ICMPv6 needs root. So SynetScan makes the devices answer instead, while the IPv4 devices
+   are being identified:
+   - mDNS, SSDP/UPnP and WS-Discovery queries to their IPv6 multicast groups, sent from the
+     link-local and from each routable address of the NAS (devices reply from an address
+     of the same kind, which reveals their routable addresses)
+   - an echo to all nodes (`ff02::1`), where unprivileged ICMP sockets or the system `ping`
+     are available
+   - a datagram to the EUI-64 link-local address of every MAC already known from IPv4
+
+   Every reply puts the device into the kernel's neighbour table, which SynetScan reads
+   without privileges (netlink, or `ip -6 neigh`). Addresses are grouped by MAC address:
+   those of known devices are added to them, and devices without IPv4 are port-scanned and
+   identified like any other.
+
+A /24 network takes roughly 8–15 seconds to scan, IPv6 included.
 
 ## 🧩 DSM integration
 
@@ -188,7 +205,12 @@ To release a new version, change `__version__` in `src/lib/synetscan/__init__.py
 
 ## ⚠️ Limitations
 
-- **IPv4 only.**
+- **IPv6-only devices need to answer something.** Without root, SynetScan can't sweep an
+  IPv6 network. It finds IPv6-only devices that answer mDNS, UPnP or WS-Discovery, that talk
+  to the NAS, or (where the system allows unprivileged ping) that answer an echo to all nodes.
+  Most home devices also use IPv4, and the IPv4 scan finds them regardless.
+- **Link-local only devices.** Web interfaces of IPv6-only devices can only be opened when
+  they have a global or unique-local address; browsers can't open `fe80::` addresses.
 - **Routed networks have no MAC addresses.** Devices in networks reached through a
   router (custom ranges) are found by TCP/ping only. They show up without a MAC
   address, so no vendor lookup is possible for them.
