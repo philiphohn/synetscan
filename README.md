@@ -188,14 +188,6 @@ The dev server runs the real daemon, with its data in `.devvar/`, and the real
 `api.cgi`. Setting `SYNETSCAN_DEV=1` skips the DSM login check. To scan specific
 ranges, edit them in **Settings → Scan Targets**.
 
-To re-record the demo GIF (needs Chrome and ffmpeg):
-
-```sh
-rm -rf .devvar && python3 tools/demo/seed.py .devvar
-python3 tools/devserver.py &
-node tools/demo/record.mjs                  # -> docs/images/demo.gif
-```
-
 To update the vendor database:
 
 ```sh
