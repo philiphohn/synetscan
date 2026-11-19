@@ -14,6 +14,7 @@ See every device on your network, know what it is, and notice when something new
 ![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-2ea44f?style=flat-square)
 ![Runs as non-root](https://img.shields.io/badge/runs%20as-non--root-6f42c1?style=flat-square)
+![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-bd0000?style=flat-square)
 ![English · Deutsch](https://img.shields.io/badge/UI-English%20%C2%B7%20Deutsch-f0ad4e?style=flat-square)
 
 <img width="99%" alt="SynetScan running on the DSM desktop: overview, a scan, reviewing a new device, device details, activity and settings" src="docs/images/demo.gif">
@@ -202,5 +203,21 @@ To release a new version, change `__version__` in `src/lib/synetscan/__init__.py
 
 Logs are in `/var/packages/SynetScan/var/synetscan.log`. DSM 7.4 Package Center has no Log
 tab for third-party packages, so read the file over SSH or with a Task Scheduler script.
+
+## 📄 License
+
+Copyright © 2026 Philip Hohn
+
+SynetScan is free software: you can redistribute it and/or modify it under the terms of
+the [GNU General Public License](LICENSE) as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version.
+
+In short: you may use SynetScan for any purpose, including commercially, and you may
+share and change it. If you distribute it or a modified version, you must do so under the
+GPL as well, with its source code. SynetScan comes without any warranty; see the license
+for details.
+
+The bundled MAC vendor database comes from the IEEE registry as published by the
+Wireshark project.
 
 <div align="right"><a href="#readme-top">↑ back to top</a></div>

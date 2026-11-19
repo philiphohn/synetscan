@@ -15,6 +15,9 @@ trap 'rm -rf "$WORK"' EXIT
 # package.tgz – the application payload
 mkdir -p "$WORK/pkg"
 cp -R src/bin src/lib src/share src/ui "$WORK/pkg/"
+# GPL: the license travels with the installed files (not at the .spk top level, where DSM
+# would show it as an agreement step; the GPL needs no acceptance to use the software)
+cp LICENSE "$WORK/pkg/LICENSE"
 find "$WORK/pkg" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$WORK/pkg" -name '*.pyc' -delete
 find "$WORK/pkg" -type d -exec chmod 755 {} +
@@ -27,7 +30,6 @@ mkdir -p "$WORK/spk"
 cp "$WORK/package.tgz" "$WORK/spk/"
 cp -R spk/scripts spk/conf "$WORK/spk/"
 cp spk/PACKAGE_ICON.PNG spk/PACKAGE_ICON_256.PNG "$WORK/spk/"
-cp LICENSE "$WORK/spk/LICENSE" 2>/dev/null || true
 chmod 755 "$WORK/spk/scripts/"*
 CHECKSUM=$(md5sum "$WORK/package.tgz" | cut -d' ' -f1)
 sed -e "s/@VERSION@/$VERSION/" -e "s/@CREATE_TIME@/$(date +%Y%m%d-%H:%M:%S)/" -e "s/@CHECKSUM@/$CHECKSUM/" \
@@ -35,5 +37,5 @@ sed -e "s/@VERSION@/$VERSION/" -e "s/@CREATE_TIME@/$(date +%Y%m%d-%H:%M:%S)/" -e
 
 mkdir -p "$OUT"
 SPK="$OUT/SynetScan-$VERSION-noarch.spk"
-(cd "$WORK/spk" && tar --owner=0 --group=0 --numeric-owner -cf - INFO package.tgz scripts conf PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG $( [ -f LICENSE ] && echo LICENSE )) > "$SPK"
+(cd "$WORK/spk" && tar --owner=0 --group=0 --numeric-owner -cf - INFO package.tgz scripts conf PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG) > "$SPK"
 echo "built $SPK ($(du -h "$SPK" | cut -f1))"
