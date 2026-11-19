@@ -1,0 +1,12 @@
+#!/bin/sh
+. "$(dirname "$0")/common"
+PY=$(find_python)
+if [ -z "$PY" ]; then
+    log_ui "SynetScan requires Python 3. Please install \"Python 3.9\" from Package Center and try again."
+    exit 1
+fi
+if ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' 2>/dev/null; then
+    log_ui "SynetScan requires Python 3.6 or newer (found: $("$PY" -V 2>&1))."
+    exit 1
+fi
+exit 0

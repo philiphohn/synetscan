@@ -1,0 +1,18 @@
+#!/bin/sh
+# Shared helpers for the SynetScan package scripts.
+PKG="SynetScan"
+PKG_VAR="${SYNOPKG_PKGVAR:-/var/packages/$PKG/var}"
+PKG_TARGET="${SYNOPKG_PKGDEST:-/var/packages/$PKG/target}"
+
+find_python() {
+    for c in /var/packages/Python3.9/target/usr/bin/python3 /usr/local/bin/python3 /usr/bin/python3 /bin/python3; do
+        if [ -x "$c" ]; then echo "$c"; return 0; fi
+    done
+    return 1
+}
+
+log_ui() {
+    # Messages written here are shown by Package Center.
+    [ -n "$SYNOPKG_TEMP_LOGFILE" ] && echo "$1" >> "$SYNOPKG_TEMP_LOGFILE"
+    echo "$1"
+}

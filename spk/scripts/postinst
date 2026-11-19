@@ -1,0 +1,5 @@
+#!/bin/sh
+. "$(dirname "$0")/common"
+mkdir -p "$PKG_VAR"
+chmod 755 "$PKG_TARGET/ui/api.cgi" "$PKG_TARGET/bin/synetscand" 2>/dev/null
+exit 0

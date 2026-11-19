@@ -1,0 +1,5 @@
+.devvar/
+dist/
+__pycache__/
+*.pyc
+tools/chrome_test_prompt*.md

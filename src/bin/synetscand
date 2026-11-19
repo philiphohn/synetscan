@@ -1,0 +1,19 @@
+#!/bin/sh
+# Launch the SynetScan daemon (called by start-stop-status).
+DIR=$(cd "$(dirname "$0")" && pwd -P)
+LIB="$DIR/../lib"
+VAR="${SYNOPKG_PKGVAR:-/var/packages/SynetScan/var}"
+PY=""
+for c in /var/packages/Python3.9/target/usr/bin/python3 /usr/local/bin/python3 /usr/bin/python3 /bin/python3; do
+    if [ -x "$c" ]; then PY="$c"; break; fi
+done
+[ -n "$PY" ] || { echo "python3 not found" >&2; exit 1; }
+export PYTHONDONTWRITEBYTECODE=1
+exec "$PY" -I -c "
+import sys
+sys.path.insert(0, sys.argv[1])
+from synetscan.util import setup_logging
+from synetscan import daemon
+setup_logging(sys.argv[3] if len(sys.argv) > 3 else None)
+daemon.run(sys.argv[2])
+" "$LIB" "$VAR" "$@"

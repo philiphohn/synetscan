@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DSM (mock) – SynetScan preview</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: "Noto Sans", Roboto, "Segoe UI", Arial, sans-serif; font-size: 13px; }
+  body { background: radial-gradient(ellipse at 30% 20%, #6fa8dc 0%, #2f6aa8 45%, #183d6b 100%); overflow: hidden; }
+  .taskbar { height: 40px; background: rgba(255,255,255,.88); backdrop-filter: blur(8px); display: flex; align-items: center; padding: 0 10px; gap: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  .tb-btn { width: 32px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+  .tb-btn.active { background: rgba(5,127,235,.14); }
+  .tb-btn img { width: 24px; height: 24px; }
+  .grid { width: 18px; height: 18px; display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
+  .grid i { width: 4px; height: 4px; background: #4a5866; border-radius: 1px; }
+  .spacer { flex: 1; }
+  .win { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); width: min(1180px, calc(100% - 40px)); height: calc(100% - 82px);
+    background: #fff; border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden; }
+  .win-head { height: 38px; display: flex; align-items: center; padding: 0 8px 0 12px; gap: 8px; border-bottom: 1px solid #e3e8ee; color: #414b55; font-weight: 600; flex: none; }
+  .win-head img { width: 20px; height: 20px; }
+  .ctl { margin-left: auto; display: flex; gap: 2px; }
+  .ctl span { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: #6a7784; border-radius: 4px; font-size: 14px; }
+  iframe { border: 0; flex: 1; width: 100%; }
+</style>
+<script>
+  // Minimal stand-in for the DSM session object the app reads from window.parent.
+  var lang = new URLSearchParams(location.search).get("lang") === "de" ? "ger" : "enu";
+  window.SYNO = { SDS: { Session: { SynoToken: "dev-token", lang: lang } } };
+</script>
+</head>
+<body>
+  <div class="taskbar">
+    <div class="tb-btn"><div class="grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="tb-btn active"><img src="/webman/3rdparty/SynetScan/images/icon_32.png" alt=""></div>
+    <div class="spacer"></div>
+  </div>
+  <div class="win">
+    <div class="win-head"><img src="/webman/3rdparty/SynetScan/images/icon_24.png" alt="">SynetScan
+      <div class="ctl"><span>?</span><span>&#8211;</span><span>&#9633;</span><span>&#10005;</span></div></div>
+    <iframe id="app"></iframe>
+    <script>document.getElementById("app").src = "/webman/3rdparty/SynetScan/index.html" + location.search;</script>
+  </div>
+</body>
+</html>
