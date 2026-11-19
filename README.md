@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="128" alt="SynetScan icon" src="src/ui/images/icon_256.png">
+<a href="https://synetscan.hbc-berlin.com/en/" title="Go to the SynetScan website"><img width="128" alt="SynetScan icon" src="src/ui/images/icon_256.png"></a>
 
 <a name="readme-top"></a>
 
@@ -16,6 +16,8 @@ See every device on your network, know what it is, and notice when something new
 ![Runs as non-root](https://img.shields.io/badge/runs%20as-non--root-6f42c1?style=flat-square)
 ![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-bd0000?style=flat-square)
 ![English · Deutsch](https://img.shields.io/badge/UI-English%20%C2%B7%20Deutsch-f0ad4e?style=flat-square)
+
+**[🌐 synetscan.hbc-berlin.com](https://synetscan.hbc-berlin.com/en/)** · [Download](https://github.com/philiphohn/synetscan/releases/latest)
 
 <img width="99%" alt="SynetScan running on the DSM desktop: overview, a scan, reviewing a new device, device details, activity and settings" src="docs/images/demo.gif">
 
@@ -55,7 +57,8 @@ Open it from the DSM main menu like any other Synology app.
 ## ⚡️ Installation
 
 1. Download the latest `SynetScan-<version>-noarch.spk` from the
-   [Releases page](https://github.com/philiphohn/synetscan/releases/latest).
+   [Releases page](https://github.com/philiphohn/synetscan/releases/latest). More about the
+   app is on the [SynetScan website](https://synetscan.hbc-berlin.com/en/).
    You can also build it yourself with `./build.sh` (see Development below).
 2. In DSM, open **Package Center → Manual Install** and choose the `.spk`.
    DSM will warn that the package is from an unknown publisher (it isn't signed
