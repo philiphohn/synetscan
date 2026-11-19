@@ -9,6 +9,7 @@
 **A network scanner for your Synology NAS.**<br/>
 See every device on your network, know what it is, and notice when something new shows up.
 
+![Latest release](https://img.shields.io/github/v/release/philiphohn/synetscan?style=flat-square&color=0479ec)
 ![DSM 7.0+](https://img.shields.io/badge/DSM-7.0%2B-0479ec?style=flat-square&logo=synology&logoColor=white)
 ![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-2ea44f?style=flat-square)
@@ -50,10 +51,9 @@ Open it from the DSM main menu like any other Synology app.
 
 ## ⚡️ Installation
 
-1. Build the package (or use a prebuilt `dist/*.spk`):
-   ```sh
-   ./build.sh            # -> dist/SynetScan-1.0.3-0001-noarch.spk
-   ```
+1. Download the latest `SynetScan-<version>-noarch.spk` from the
+   [Releases page](https://github.com/philiphohn/synetscan/releases/latest).
+   You can also build it yourself with `./build.sh` (see Development below).
 2. In DSM, open **Package Center → Manual Install** and choose the `.spk`.
    DSM will warn that the package is from an unknown publisher (it isn't signed
    by Synology). Confirm to continue.
