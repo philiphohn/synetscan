@@ -15,6 +15,7 @@ See every device on your network, know what it is, and notice when something new
 ![No dependencies](https://img.shields.io/badge/dependencies-none-2ea44f?style=flat-square)
 ![Runs as non-root](https://img.shields.io/badge/runs%20as-non--root-6f42c1?style=flat-square)
 ![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-bd0000?style=flat-square)
+![Tested on 3 Synology NAS](https://img.shields.io/badge/tested%20on-DS220%2B%20%C2%B7%20DS923%2B%20%C2%B7%20DS1813%2B-2ea44f?style=flat-square)
 ![English · Deutsch](https://img.shields.io/badge/UI-English%20%C2%B7%20Deutsch-f0ad4e?style=flat-square)
 
 **[🌐 synetscan.hbc-berlin.com](https://synetscan.hbc-berlin.com/en/)** · [Download](https://github.com/philiphohn/synetscan/releases/latest)
@@ -71,6 +72,20 @@ Open it from the DSM main menu like any other Synology app.
 Requirements: DSM 7.0 or newer and Python 3. DSM 7 already ships `/usr/bin/python3`.
 If it is missing, install **Python 3.9** from Package Center first. The package is
 `noarch`, so it installs on every model.
+
+### ✅ Tested on
+
+SynetScan was tested on three Synology NAS in three different networks, from the first
+install through updates to IPv6:
+
+| Model | CPU | DSM | Network | Access |
+| --- | --- | --- | --- | --- |
+| DS220+ | Intel Celeron J4025 (x86-64) | 7.4.1 | Home network, IPv6 off on the NAS | QuickConnect |
+| DS923+ | AMD Ryzen R1600 (x86-64) | 7.4.1 | Office network with two LAN ports, a VPN router using proxy ARP, link-local IPv6 | Local network |
+| DS1813+ | Intel Atom D2700 (x86-64) | 7.1.1 | Home network with native IPv6 from the provider, Open vSwitch | Tailscale |
+
+The package is `noarch` and uses only the Python that DSM ships, so other models and DSM 7
+versions should work the same way.
 
 Only members of the **administrators** group can open the app. Both the DSM menu
 entry and the API check this.
@@ -214,9 +229,8 @@ To release a new version, change `__version__` in `src/lib/synetscan/__init__.py
 - **Docker hosts.** When Container Manager is installed, the `docker*`/`veth*`
   bridges are skipped automatically. Add a range under custom ranges if you want
   to scan one anyway.
-- **Tested on real hardware:** a DS220+ with DSM 7.4.1 (install, update, DSM window, scanning,
-  QuickConnect access). Other models and DSM versions should work the same way, since the
-  package is `noarch`, but they have not been tried.
+- **ARM models not tried yet.** All three test NAS use x86-64 CPUs. SynetScan contains no
+  compiled code, so ARM models (e.g. the j and value series) should work as well.
 
 Logs are in `/var/packages/SynetScan/var/synetscan.log`. DSM 7.4 Package Center has no Log
 tab for third-party packages, so read the file over SSH or with a Task Scheduler script.
