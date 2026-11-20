@@ -86,18 +86,18 @@ build.sh                  builds dist/SynetScan-<version>-noarch.spk
 ## The request path in `api.cgi`
 
 1. Read the request body completely first. A web server may drop the answer of a CGI that exits with its body unread.
-2. Refuse requests the browser marks as cross-site (`Sec-Fetch-Site` other than `same-origin` or `none`) → `cross_site`. *Since 1.1.3.*
+2. Refuse requests the browser marks as cross-site (`Sec-Fetch-Site` other than `same-origin` or `none`) → `cross_site`. *Since 1.1.5.*
 3. Ask DSM's `authenticate.cgi` (session cookie + token from the header) → `auth`.
 4. Check membership of `administrators` (`/etc/group`, then `synogroup`) → `permission`.
 5. Allow only known actions → `unknown_action`.
 6. Allow GET for read actions only. Everything else needs POST → `method`.
-7. POST needs `Content-Type: application/json` → `bad_request`. *Since 1.1.3.*
+7. POST needs `Content-Type: application/json` → `bad_request`. *Since 1.1.5.*
 8. Answer `client` directly. Forward everything else to the service with the user name, and relay its answer. The CSV export becomes a file download.
 
 ## Web interface
 
 - `index.html` loads `js/i18n.js` (translations), `js/icons.js` (inline SVG icons and type colours) and `js/app.js` (the whole app), all with a `?v=<version>` suffix for cache busting.
-- A Content Security Policy allows only the page's own scripts and connections. *Since 1.1.3.*
+- A Content Security Policy allows only the page's own scripts and connections. *Since 1.1.5.*
 - `app.js` is plain JavaScript without a framework or build step. It renders the four pages, polls `status` (10 s, 1.5 s while scanning), and keeps the sort order and last page in `localStorage`.
 - All text from the network is inserted as escaped text.
 

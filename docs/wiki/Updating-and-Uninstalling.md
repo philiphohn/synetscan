@@ -36,7 +36,7 @@ What happens during the update:
 - Package Center shows the new version.
 - SynetScan opens normally, and your devices, names and history are all there.
 
-> Verified: updates from 1.0.1 to 1.0.2, 1.0.2 to 1.0.3 and 1.1.1 to 1.1.3 kept all data on DSM 7.4.1 and 7.1.1.
+> Verified: updates from 1.0.1 to 1.0.2, from 1.0.2 to 1.0.3, and from 1.1.1 and 1.1.2 through the 1.1.5 test builds to 1.1.5 kept all data on DSM 7.4.1 and 7.1.1.
 
 ### 5. Common problems
 

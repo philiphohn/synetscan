@@ -100,7 +100,7 @@ Related bulk actions are in **Settings → Advanced → Data**: **Remove Offline
 
 The file is UTF-8 with a byte order mark, so Excel recognises umlauts and other characters. Column headers and values are in English, whatever the interface language.
 
-**Spreadsheet safety.** A device can choose its own name, and a name like `=HYPERLINK(…)` would run as a formula in a spreadsheet. SynetScan therefore puts an apostrophe in front of any cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, so the spreadsheet shows it as text. *Available since 1.1.3.*
+**Spreadsheet safety.** A device can choose its own name, and a name like `=HYPERLINK(…)` would run as a formula in a spreadsheet. SynetScan therefore puts an apostrophe in front of any cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, so the spreadsheet shows it as text. *Available since 1.1.5.*
 
 ## Related articles
 

@@ -16,7 +16,7 @@ Everything SynetScan stores is in the package's data folder on the NAS:
   synetscan.sock    control socket of the running service
 ```
 
-On DSM 7, `/var/packages/SynetScan/var` usually points to a folder on your first volume, such as `/volume1/@appdata/SynetScan` **(to verify)**. All files belong to the package user and can only be read by that user (mode `0600`, *since 1.1.3*). Administrators need `sudo` to read them over SSH.
+On DSM 7, `/var/packages/SynetScan/var` usually points to a folder on your first volume, such as `/volume1/@appdata/SynetScan` **(to verify)**. All files belong to the package user and can only be read by that user (mode `0600`, *since 1.1.5*). Administrators need `sudo` to read them over SSH.
 
 The files are plain JSON, written atomically: a new version is written next to the old one and then swapped in, so a power cut never leaves a half-written file. There is no database. The formats are described in [Internal API and Data Formats](Internal-API#data-files).
 
@@ -24,7 +24,7 @@ The files are plain JSON, written atomically: a new version is written next to t
 
 | Data | Kept | What happens beyond the limit |
 | --- | --- | --- |
-| Devices | up to 8,192 (*since 1.1.3*) | The least valuable records are removed: devices you never named, typed, noted or marked as known go first, offline before online, longest unseen first. The NAS itself is never removed. |
+| Devices | up to 8,192 (*since 1.1.5*) | The least valuable records are removed: devices you never named, typed, noted or marked as known go first, offline before online, longest unseen first. The NAS itself is never removed. |
 | Activity events | the newest 1,000 | The oldest events are dropped. |
 | Scan history | the newest 100 scans | The oldest scans are dropped. |
 | Previous IPs per device | 5 | The oldest is dropped. |

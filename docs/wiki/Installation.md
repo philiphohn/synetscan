@@ -15,7 +15,7 @@ SynetScan is installed on your Synology NAS, its background service is running, 
 ### Step 1: Download the package
 
 1. Open the [latest release](https://github.com/philiphohn/synetscan/releases/latest) on GitHub.
-2. Under **Assets**, download `SynetScan-<version>-noarch.spk`, for example `SynetScan-1.1.2-0001-noarch.spk`.
+2. Under **Assets**, download `SynetScan-<version>-noarch.spk`, for example `SynetScan-1.1.5-0001-noarch.spk`.
 
 There is only one file for all models: `noarch` means it runs on every CPU. Don't unpack it. DSM installs the `.spk` file as it is.
 

@@ -6,7 +6,7 @@ SynetScan has an inventory of your whole network, so who can see it and what it 
 
 - **Administrators only.** Only members of the DSM **administrators** group can open SynetScan. The main menu entry is hidden from other users, and **every API request** is checked again on the NAS, so hiding the menu isn't the only barrier. Other users get: *SynetScan is only available to members of the administrators group.*
 - **Your DSM sign-in is the only sign-in.** SynetScan has no accounts or passwords of its own. Each request is checked against your DSM session by DSM's own `authenticate.cgi`, with the session cookie and DSM's session token (SynoToken). If the session has expired, the app asks you to sign in to DSM again.
-- **The session token stays out of URLs.** The app reads the token from the DSM desktop and sends it only in a request header, the CSV export included. It never appears in an address, a log or the browser history. *Available since 1.1.3.*
+- **The session token stays out of URLs.** The app reads the token from the DSM desktop and sends it only in a request header, the CSV export included. It never appears in an address, a log or the browser history. *Available since 1.1.5.*
 - To give a colleague access, make them a DSM administrator. There is no read-only role.
 
 ## What the package may do on the NAS
@@ -14,12 +14,12 @@ SynetScan has an inventory of your whole network, so who can see it and what it 
 - **It runs as an unprivileged package user**, not as root. DSM 7 requires that for third-party packages (`run-as: package`).
 - That user can't open raw sockets. That's why SynetScan finds devices through ordinary connections and the kernel's ARP table, and why [ICMP ping](Enabling-ICMP-Ping) may be unavailable.
 - **The service's control socket** (`synetscan.sock`) can only be opened by the package user. All access goes through `api.cgi`, which checks the DSM session and the administrators group first.
-- **The data files and the log can only be read by the package user** (file mode `0600`). Files from older versions are tightened when the service starts. *Available since 1.1.3.*
+- **The data files and the log can only be read by the package user** (file mode `0600`). Files from older versions are tightened when the service starts. *Available since 1.1.5.*
 - SynetScan uses no database server, starts no shell with input from the network or the browser, and writes only to its own data folder.
 
 ## How SynetScan treats data from the network
 
-Almost everything SynetScan shows comes from the devices themselves: names, models, service announcements, web page titles. Anyone in your network can send such answers, so SynetScan treats all of it as untrusted input. *Most of the following is available since 1.1.3.*
+Almost everything SynetScan shows comes from the devices themselves: names, models, service announcements, web page titles. Anyone in your network can send such answers, so SynetScan treats all of it as untrusted input. *Most of the following is available since 1.1.5.*
 
 - **Names stay text.** Control characters and invisible or direction-changing Unicode characters are removed, and every string is cut to a fixed length before it is stored. The app shows these strings as text, never as markup. A Content Security Policy on the page allows no inline or foreign scripts and no connections to other hosts.
 - **The NAS only talks to the device it asked.** A UPnP description is fetched only from the device that announced it, whatever address the announcement names. Redirects are followed on the same device only, and no host name from the network is ever resolved. A device can't make the NAS fetch pages from other machines, or read local files.
@@ -32,8 +32,8 @@ Almost everything SynetScan shows comes from the devices themselves: names, mode
 
 SynetScan's API runs inside your DSM session, so another website must not be able to use it through your browser:
 
-- **Changes need a POST with a JSON body.** A web page of another origin can make a browser send a form or plain text along with your cookies, but not JSON, without a permission DSM never gives. *JSON requirement available since 1.1.3.*
-- **Requests that the browser marks as started by another website are refused** (`Sec-Fetch-Site`). *Available since 1.1.3.* The app then says: *The request was refused because it did not come from the SynetScan window. Open SynetScan from the DSM main menu.*
+- **Changes need a POST with a JSON body.** A web page of another origin can make a browser send a form or plain text along with your cookies, but not JSON, without a permission DSM never gives. *JSON requirement available since 1.1.5.*
+- **Requests that the browser marks as started by another website are refused** (`Sec-Fetch-Site`). *Available since 1.1.5.* The app then says: *The request was refused because it did not come from the SynetScan window. Open SynetScan from the DSM main menu.*
 - Read requests only return data and change nothing.
 
 See [Internal API](Internal-API) for the details.

@@ -46,7 +46,7 @@ Rules:
 
 - Each entry may cover at most **65,536 addresses**, so a `/16` is the largest network.
 - In the short form `a.b.c.d-N`, N is the last part of the end address (0–255). The range stays within the same block of 256 addresses.
-- At most **64 entries**. *Available since 1.1.3.* Combine single addresses into ranges or networks.
+- At most **1,024 entries**. *Available since 1.1.5.* Combine single addresses into ranges or networks.
 - A whole scan, interfaces and additional ranges together, covers at most 65,536 addresses. Addresses beyond that are left out.
 - Addresses in both an interface network and an additional range are scanned once.
 

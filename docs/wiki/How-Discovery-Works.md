@@ -31,7 +31,7 @@ Finishing      merge the NAS's own ports · merge IPv6 · classify · save · ev
 - **mDNS/Bonjour**: a DNS-SD query for all service types to `224.0.0.251:5353`, then queries for each type found plus a set of common ones (`_http`, `_workstation`, `_smb`, `_airplay`, `_googlecast`, `_ipp`, `_printer`, `_raop`, `_device-info`, `_companion-link`, `_hap`, `_spotify-connect`, `_ssh`, `_sonos`, `_homekit`). The answers carry host names, service instances, models and IPv6 addresses.
 - **SSDP/UPnP**: an `M-SEARCH` for all devices (`ssdp:all`) to `239.255.255.250:1900`, sent twice. The answers carry the URL of each device's description and its `Server` header.
 
-Both are sent from every physical interface that is up, and each takes about 2.5 seconds. In version 1.1.5 (in development), the Bonjour browse gets a head start of up to two seconds before the sweep begins, and repeats its questions once. A device that is being probed sometimes answers late, without its host name, or not at all.
+Both are sent from every physical interface that is up, and each takes about 2.5 seconds. Since version 1.1.5, the Bonjour browse gets a head start of up to two seconds before the sweep begins, and repeats its questions once. A device that is being probed sometimes answers late, without its host name, or not at all.
 
 **The sweep.** For every address in the target list (except the NAS's own), in parallel (*Parallel probes*):
 
@@ -56,8 +56,8 @@ For each device found, in parallel (half the *Parallel probes*, at least 8):
 | **Port scan** | TCP connection attempts to the ports of **Settings → Ports**, 32 at a time, each group waiting up to *timeout + 0.3 s* | Open ports (Services) |
 | **Reverse DNS** | `PTR` lookup through the NAS's resolver | DNS name |
 | **NetBIOS** | Node status query to UDP 137 (0.8 s) | Computer name, workgroup, MAC address (also for routed devices) |
-| **mDNS** | Uses what the device announced during the browse. If it answered without its host name, SynetScan asks the device directly for its `.local` name and addresses (*since 1.1.4*). If it didn't answer the browse at all, SynetScan asks it for its name by reverse lookup (0.6 s). | `.local` name, services, model, friendly name, IPv6 addresses |
-| **UPnP** | Fetches the device description announced over SSDP, from the device that announced it only. Tries up to four announced descriptions in turn (*since 1.1.4*), within 8 seconds. | Friendly name, manufacturer, model name and number, device type |
+| **mDNS** | Uses what the device announced during the browse. If it answered without its host name, SynetScan asks the device directly for its `.local` name and addresses; if it gave its name but no IPv6 addresses, SynetScan asks it for the addresses (*since 1.1.5*). If it didn't answer the browse at all, SynetScan asks it for its name by reverse lookup (0.6 s). | `.local` name, services, model, friendly name, IPv6 addresses |
+| **UPnP** | Fetches the device description announced over SSDP, from the device that announced it only. Tries up to four announced descriptions in turn (*since 1.1.5*), within 8 seconds. | Friendly name, manufacturer, model name and number, device type |
 | **Web page** | `GET /` on the first open port of 80, 8080, 443 and 5000, following redirects on the same device only, within 8 seconds per device | Page title and `Server` header |
 | **Vendor** | Looks up the MAC prefix in the bundled IEEE database (about 59,000 entries) | Vendor; whether the MAC address is private |
 

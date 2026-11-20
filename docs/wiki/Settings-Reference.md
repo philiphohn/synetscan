@@ -18,9 +18,9 @@ General rules:
 | **Scan networks of the following interfaces automatically**<br>*Netzwerke folgender Schnittstellen automatisch scannen* | `auto_subnets` | on | on / off | Scans the network of every physical interface that is up, has an address outside `169.254.0.0/16` and isn't unticked below. Off: only the additional ranges are scanned. |
 | **Interface checkboxes** (one per physical interface) | `excluded_interfaces` | all ticked (empty list) | list of interface names, up to 64 | Unticked interfaces aren't scanned automatically. IPv6 discovery leaves them out too. |
 | **Maximum hosts per interface network**<br>*Max. Hosts pro Schnittstellennetz* | `max_hosts_per_subnet` | 1024 (shown as /22 (1022)) | UI: 256, 512, 1024, 2048, 4096, 8192 (/24 … /19). Allowed range: 16–16384 | Larger interface networks are reduced to the largest block around the NAS's address that has at most this many hosts. Disabled while the automatic scan is off. |
-| **Additional ranges**<br>*Zusätzliche Bereiche* | `custom_targets` | empty | up to 64 entries; each a network (CIDR), a single address, `a.b.c.d-N` or `a.b.c.d-e.f.g.h`, at most 65,536 addresses each | Scanned in addition. One per line, commas also work. See [Scan Targets](Scan-Targets#additional-ranges). |
+| **Additional ranges**<br>*Zusätzliche Bereiche* | `custom_targets` | empty | up to 1,024 entries; each a network (CIDR), a single address, `a.b.c.d-N` or `a.b.c.d-e.f.g.h`, at most 65,536 addresses each | Scanned in addition. One per line, commas also work. See [Scan Targets](Scan-Targets#additional-ranges). |
 
-Limits: a scan covers at most 65,536 IPv4 addresses in total. Entries are cut to 80 characters before they are checked. The limit of 64 entries is *available since 1.1.3*.
+Limits: a scan covers at most 65,536 IPv4 addresses in total. Entries are cut to 80 characters before they are checked. The limit of 1,024 entries is *available since 1.1.5*.
 
 ## Schedule
 
@@ -96,7 +96,7 @@ Details: [Data Storage, Retention, Backup, and Reset](Data-Storage-and-Backup).
 
 | Limit | Value |
 | --- | --- |
-| Devices kept | 8,192. Beyond that, the least valuable records go first: offline devices you never named, typed, noted or marked as known, longest unseen first. The NAS itself is never removed. *Available since 1.1.3.* |
+| Devices kept | 8,192. Beyond that, the least valuable records go first: offline devices you never named, typed, noted or marked as known, longest unseen first. The NAS itself is never removed. *Available since 1.1.5.* |
 | Activity events kept | 1,000 (newest) |
 | Scans kept in the history | 100 (newest) |
 | Previous IP addresses per device | 5 |

@@ -22,7 +22,7 @@ When something doesn't work as expected, these are the places to look, from the 
 | *SynetScan is only available to members of the administrators group.* | `permission` | Your account isn't an administrator. |
 | *The SynetScan service is not running. Please start the package in Package Center.* | `daemon` | The background service isn't reachable. |
 | *The SynetScan web interface may not connect to the SynetScan service.* (with a user ID) | `daemon_perm` | The API runs as a different user than the service. Please [report it](Reporting-Bugs) with your DSM version. |
-| *The request was refused because it did not come from the SynetScan window. …* | `cross_site` | The browser marked the request as started by another website. *Since 1.1.3.* |
+| *The request was refused because it did not come from the SynetScan window. …* | `cross_site` | The browser marked the request as started by another website. *Since 1.1.5.* |
 | *The request was rejected by the NAS.* | `method`, `bad_request` | A change was sent without POST or without a JSON body. |
 | *This function is not supported by the installed SynetScan service.* | `unknown_action` | The page and the service are different versions. Restart the package and reload DSM. |
 | *Not possible while a scan is running. …* | `busy` | Wait for the scan to finish. |
@@ -43,7 +43,7 @@ The service writes its log to:
 
 It is rotated at 512 KB, keeping `synetscan.log.1` and `synetscan.log.2`. Problems that happen before logging starts (for example *python3 not found*) end up in `daemon.out` in the same folder.
 
-**DSM 7.4 Package Center has no Log tab for third-party packages**, so read the file over SSH or copy it with a scheduled task. The file can only be read by the package user (*since 1.1.3*), so you need root.
+**DSM 7.4 Package Center has no Log tab for third-party packages**, so read the file over SSH or copy it with a scheduled task. The file can only be read by the package user (*since 1.1.5*), so you need root.
 
 ### Option A: SSH
 
@@ -85,7 +85,8 @@ Each line has a timestamp, a level (`INFO`, `WARNING`, `ERROR`) and a message, a
 | `proxy ARP: 00:1d:aa:… answers for 192.168.1.1, 192.168.1.200; kept on 192.168.1.1` | A router answers ARP for other addresses ([proxy ARP](Interfaces-VLANs-and-Routed-Networks#proxy-arp-and-vpn-clients)) |
 | `second ARP round found 2 more host(s)` | Sleeping devices answered the second datagram. |
 | `dropping stale ARP entry 192.168.1.47` | A device known only from the ARP cache has gone ([Verifying](How-Discovery-Works#4-verifying)). |
-| `mDNS: 1 device(s) answered the browse without a host name; …` | Devices were asked directly for their `.local` name (*since 1.1.4*). |
+| `mDNS: 1 device(s) answered the browse without a host name; asked directly, 1 gave it and 1 their IPv6 addresses` | Devices were asked directly for their `.local` name and addresses (*since 1.1.5*). |
+| `mDNS: 1 device(s) answered the browse without IPv6 addresses; 0 gave them when asked directly` | Devices that gave their name but no IPv6 addresses were asked for them. Devices without IPv6 are counted too, so a 0 here is normal (*since 1.1.5*). |
 | `IPv6: 12 neighbour(s) on eth0 (echo: none)` | IPv6 discovery result. `echo:` shows how the all-nodes echo was sent: `socket`, `ping` or `none`. |
 | `IPv6: no interface with IPv6 (link-local) address, skipped` | IPv6 is off on the NAS. |
 | `IPv6: 2 device(s) without IPv4` | IPv6-only devices found |

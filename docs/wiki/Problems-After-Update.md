@@ -17,8 +17,8 @@ After installing a new version:
 1. **The DSM desktop still has the old app in memory.** DSM loads the list of apps and their window scripts once, when you sign in. Until you reload the page, it opens the app the old way.
 2. **The browser cached old files.** SynetScan adds its version to its file addresses to prevent this, but proxies or aggressive caches can still serve old files.
 3. **The service didn't restart** or failed to start, so the page and the service are different versions, or there is no service at all.
-4. **Something between the browser and DSM changes requests.** Since 1.1.3, SynetScan refuses changes without a JSON body, and requests a browser marks as started by another website. A reverse proxy or a browser extension that rewrites requests can trigger this.
-5. **The page's security policy blocks something** (since 1.1.3). The page allows only its own scripts. If something injects scripts into DSM pages, such as some browser extensions, the window can stay blank, with messages in the browser console.
+4. **Something between the browser and DSM changes requests.** Since 1.1.5, SynetScan refuses changes without a JSON body, and requests a browser marks as started by another website. A reverse proxy or a browser extension that rewrites requests can trigger this.
+5. **The page's security policy blocks something** (since 1.1.5). The page allows only its own scripts. If something injects scripts into DSM pages, such as some browser extensions, the window can stay blank, with messages in the browser console.
 
 ## Checks
 

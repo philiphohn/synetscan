@@ -11,9 +11,9 @@
 Every request needs:
 
 - the **DSM session cookie** of a signed-in user in the **administrators** group;
-- DSM's session token in the **`X-SYNO-TOKEN`** header. The token is accepted only from the header, never from the URL (*since 1.1.3*);
-- for changing actions: **POST** with **`Content-Type: application/json`** and a JSON object as body (*JSON requirement since 1.1.3*);
-- no `Sec-Fetch-Site` header other than `same-origin` or `none`. Requests started by another website are refused (*since 1.1.3*).
+- DSM's session token in the **`X-SYNO-TOKEN`** header. The token is accepted only from the header, never from the URL (*since 1.1.5*);
+- for changing actions: **POST** with **`Content-Type: application/json`** and a JSON object as body (*JSON requirement since 1.1.5*);
+- no `Sec-Fetch-Site` header other than `same-origin` or `none`. Requests started by another website are refused (*since 1.1.5*).
 
 The checks run in that order: cross-site, session, administrator, known action, method, content type. See [Architecture](Architecture#the-request-path-in-apicgi).
 
@@ -27,7 +27,7 @@ Every answer is JSON, with HTTP status **200** even for errors. DSM's web server
                              "field": "custom_targets", "value": "10.0.0.0/33"}}
 ```
 
-Response headers include `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (the last two *since 1.1.3*).
+Response headers include `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (the last two *since 1.1.5*).
 
 ### Error codes
 
@@ -36,7 +36,7 @@ Response headers include `Cache-Control: no-store`, `X-Content-Type-Options: nos
 | `cross_site` | Request started by another website |
 | `auth` | No valid DSM session |
 | `permission` | Not an administrator |
-| `unknown_action` | No such action (*since 1.1.4 also for unknown GET actions*) |
+| `unknown_action` | No such action (*since 1.1.5 also for unknown GET actions*) |
 | `method` | Changing action without POST, or a method other than GET/POST |
 | `bad_request` | POST without JSON content type, invalid JSON, or not a JSON object |
 | `too_large` | Body larger than 1 MB |

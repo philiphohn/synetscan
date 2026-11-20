@@ -40,7 +40,7 @@ If the UI files keep an old version, browsers and the DSM desktop may keep servi
 4. **Build**: `./build.sh`.
 5. **Test on a real NAS**: fresh install, and update over the previous release (data must survive), on DSM 7.1 and 7.2+ if possible. Open the app locally and over QuickConnect, run a scan, and check the log. See [Local Development](Local-Development#checking-a-change-on-a-real-nas).
 6. **README** and this **wiki** updated for new or changed behaviour. Mark new behaviour with *Available since x.y.z*.
-7. **Commit and tag**: `git tag vx.y.z`. Earlier tags: `v1.0.3`, `v1.0.4`, `v1.1.2`.
+7. **Commit and tag**: `git tag vx.y.z`. Earlier tags: `v1.0.3`, `v1.0.4`, `v1.1.2`, `v1.1.5`.
 8. **GitHub release**: create a release for the tag, attach `dist/SynetScan-x.y.z-0001-noarch.spk`, and write the release notes. For example with the GitHub CLI:
 
    ```sh

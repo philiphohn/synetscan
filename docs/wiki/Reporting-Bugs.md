@@ -10,7 +10,7 @@ Bug reports and ideas go to the GitHub issue tracker: **[github.com/philiphohn/s
 
 ## Reporting a bug
 
-Open a [new issue](https://github.com/philiphohn/synetscan/issues/new) with a short, specific title, such as *"Hue bridge shown without name since 1.1.4"* rather than *"doesn't work"*.
+Open a [new issue](https://github.com/philiphohn/synetscan/issues/new) with a short, specific title, such as *"Hue bridge shown without name since 1.1.5"* rather than *"doesn't work"*.
 
 Include:
 
