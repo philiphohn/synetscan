@@ -1,6 +1,7 @@
 """Unprivileged network probes used by the scanner."""
 import errno
 import html
+import ipaddress
 import os
 import re
 import selectors
@@ -9,12 +10,18 @@ import ssl
 import struct
 import subprocess
 import time
-import urllib.request
-import xml.etree.ElementTree as ET
+import urllib.parse
+from xml.parsers import expat
 
 from . import dnsmsg
+from .util import clean_text
 
 ALIVE_ERRNOS = {errno.ECONNREFUSED, errno.ECONNRESET}
+# Answers to multicast queries are unauthenticated datagrams; any device on the LAN can send
+# as many as it likes under as many sender addresses as it likes. Everything collected from
+# them is bounded.
+MAX_SENDERS = 4096
+MAX_LOCATIONS = 4  # UPnP descriptions tried per device
 
 
 # --------------------------------------------------------------------------- TCP
@@ -183,6 +190,8 @@ def netbios_status(ip, timeout=1.0):
 
 # ---------------------------------------------------------------------- mDNS
 MDNS_ADDR = ("224.0.0.251", 5353)
+MAX_SERVICE_TYPES = 128
+_SERVICE_TYPE = re.compile(r"^_[A-Za-z0-9_-]{1,62}\._(tcp|udp)\.local$", re.I)
 
 
 def mdns_reverse(ip, timeout=0.8):
@@ -202,7 +211,84 @@ def mdns_reverse(ip, timeout=0.8):
     return ""
 
 
-def _collect(sock, duration, handler):
+def mdns_host(ip, services=(), timeout=1.5, port=5353, name=""):
+    """Ask a device itself (unicast to :5353) for its .local name and the IPv6 addresses it
+    announces for it: (name, [address, ..]).
+
+    For a device that answered the browse without the records that carry them. `services`
+    are the types it offers ("_hue._tcp"); with `name` known, only its addresses are asked
+    for. Asked like a DNS-SD client resolves a service: type -> instance -> host name ->
+    addresses, in at most three exchanges. A question that gets no answer within half of
+    `timeout` is sent once more (a Hue bridge answered slowly, or not at all, while a scan
+    was probing it). Every sending has an ID of its own: a late answer to an earlier one
+    still delivers its records, but does not count as the answer to the current one."""
+    found = {"name": name.rstrip(".")}
+    instances, addresses = [], {}
+    current = set()  # IDs of the questions of the current exchange
+    answered = [False]
+
+    def handle(data, _addr):
+        for rec in dnsmsg.parse_message(data)["records"]:
+            t, rname, val = rec["type"], rec["name"].lower(), rec["value"]
+            if not val:
+                continue
+            if t == dnsmsg.T_PTR and rname.endswith(".arpa"):
+                found["name"] = val.rstrip(".")
+            elif t == dnsmsg.T_PTR and val not in instances and len(instances) < 2:
+                instances.append(val)
+            elif t == dnsmsg.T_SRV and val["target"] and not found["name"]:
+                found["name"] = val["target"].rstrip(".")
+            elif t == dnsmsg.T_A and val == ip and not found["name"]:
+                found["name"] = rec["name"].rstrip(".")
+            elif t == dnsmsg.T_AAAA and (rname in addresses or len(addresses) < 8):
+                lst = addresses.setdefault(rname, [])
+                if val not in lst and len(lst) < 8:
+                    lst.append(val)
+        if struct.unpack("!H", data[:2])[0] in current:
+            answered[0] = True
+            return True
+        return False  # a late answer to an earlier question: no reason to stop listening
+
+    asked = set()
+    if found["name"]:
+        ask = [(found["name"], dnsmsg.T_AAAA)]
+    else:
+        ask = [(dnsmsg.reverse_name(ip), dnsmsg.T_PTR)] + [(t + ".local", dnsmsg.T_PTR) for t in list(services)[:3]]
+    txid = 0x2B00
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((ip, port))  # answers from any other address are not read
+        for _ in range(3):
+            ask = [q for q in ask if q not in asked]
+            if not ask:
+                break
+            asked.update(ask)
+            current.clear()
+            answered[0] = False
+            for _attempt in range(2):
+                for question in ask:  # one each: not every responder answers several in one packet
+                    txid += 1
+                    current.add(txid)
+                    s.send(dnsmsg.build_query([question], txid=txid))
+                _collect(s, timeout / 2.0, handle, quiet=0.25)
+                if answered[0]:
+                    break
+            if not found["name"]:
+                ask = [(i, dnsmsg.T_SRV) for i in instances]
+            elif found["name"].lower() not in addresses:
+                ask = [(found["name"], dnsmsg.T_AAAA)]
+            else:
+                break
+    except OSError:
+        pass
+    finally:
+        s.close()
+    return found["name"], addresses.get(found["name"].lower(), [])
+
+
+def _collect(sock, duration, handler, quiet=None):
+    """Hand every datagram that arrives within `duration` to `handler`. With `quiet`, stop
+    as soon as that many seconds have passed since the last one."""
     deadline = time.monotonic() + duration
     while True:
         remaining = deadline - time.monotonic()
@@ -216,9 +302,11 @@ def _collect(sock, duration, handler):
         except OSError:
             return
         try:
-            handler(data, addr)
+            counted = handler(data, addr)
         except (ValueError, struct.error, IndexError):
             continue
+        if quiet is not None and counted is not False:
+            deadline = min(deadline, time.monotonic() + quiet)
 
 
 def _mcast_socket(iface_ip=None):
@@ -268,8 +356,11 @@ def _host_addr(addr):
     return addr[0].split("%")[0]
 
 
-def mdns_browse(iface_ips, duration=2.5, ifindexes=None, sources=None):
+def mdns_browse(iface_ips, duration=2.5, ifindexes=None, sources=None, ready=None):
     """DNS-SD browse via legacy-unicast multicast queries, over IPv4 or (with `ifindexes`) IPv6.
+
+    `ready` (a threading.Event) is set once the questions have been out for a moment: a scan
+    holds its probes back until then, so devices answer the browse undisturbed.
 
     Returns {ip: {"services": [..], "instances": [..], "hostname": str, "txt": {}, "ipv4": str,
     "ipv6": [..]}}. "ipv4"/"ipv6" are the addresses the device announces for its host name.
@@ -281,25 +372,41 @@ def mdns_browse(iface_ips, duration=2.5, ifindexes=None, sources=None):
     def entry(ip):
         return hosts.setdefault(ip, {"services": set(), "instances": set(), "hostname": "", "txt": {}})
 
+    def add(items, value, most):
+        if len(items) < most:
+            items.add(value[:100])
+
     def handle(data, addr):
         msg = dnsmsg.parse_message(data)
-        e = entry(_host_addr(addr))
+        sender = _host_addr(addr)
+        if sender not in hosts and len(hosts) >= MAX_SENDERS:
+            return
+        e = entry(sender)
         for rec in msg["records"]:
             t, name, val = rec["type"], rec["name"], rec["value"]
             if t == dnsmsg.T_PTR and val:
                 if name == "_services._dns-sd._udp.local":
-                    service_types.add(val)
-                    e["services"].add(val.replace(".local", ""))
+                    # only well-formed types are kept, and no more are queried in the
+                    # second round than a real network has
+                    if not _SERVICE_TYPE.match(val):
+                        continue
+                    if len(service_types) < MAX_SERVICE_TYPES:
+                        service_types.add(val)
+                    add(e["services"], val.replace(".local", ""), 40)
                 elif name.endswith(".local") and name.startswith("_"):
-                    e["services"].add(name.replace(".local", ""))
+                    if _SERVICE_TYPE.match(name):
+                        add(e["services"], name.replace(".local", ""), 40)
                     inst = val[: -len(name) - 1] if val.endswith(name) else val
                     if inst:
-                        e["instances"].add(inst)
+                        add(e["instances"], inst, 20)
             elif t == dnsmsg.T_A and val:
-                host_ips[name] = val
+                if name in host_ips or len(host_ips) < MAX_SENDERS:
+                    host_ips[name] = val
                 if val == addr[0]:
                     e["hostname"] = name.rstrip(".")
             elif t == dnsmsg.T_AAAA and val:
+                if name not in host_ips6 and len(host_ips6) >= MAX_SENDERS:
+                    continue
                 lst = host_ips6.setdefault(name, [])
                 if val not in lst and len(lst) < 8:
                     lst.append(val)
@@ -316,35 +423,41 @@ def mdns_browse(iface_ips, duration=2.5, ifindexes=None, sources=None):
 
     service_types = set()
     socks = _open_mcast(iface_ips, ifindexes, sources)
+    common = {"_http._tcp.local", "_workstation._tcp.local", "_smb._tcp.local",
+              "_airplay._tcp.local", "_googlecast._tcp.local", "_ipp._tcp.local",
+              "_printer._tcp.local", "_raop._tcp.local", "_device-info._tcp.local",
+              "_companion-link._tcp.local", "_hap._tcp.local", "_spotify-connect._tcp.local",
+              "_ssh._tcp.local", "_sonos._tcp.local", "_homekit._tcp.local"}
+    start = time.monotonic()
 
-    def dest(idx):
-        return ("ff02::fb", 5353, 0, idx) if idx is not None else MDNS_ADDR
-
-    try:
-        q = dnsmsg.build_query([("_services._dns-sd._udp.local", dnsmsg.T_PTR)], txid=0x1111)
-        for s, idx in socks:
-            try:
-                s.sendto(q, dest(idx))
-            except OSError:
-                pass
-        for s, _ in socks:
-            _collect(s, duration / 2.0 / max(1, len(socks)), handle)
-        common = {"_http._tcp.local", "_workstation._tcp.local", "_smb._tcp.local",
-                  "_airplay._tcp.local", "_googlecast._tcp.local", "_ipp._tcp.local",
-                  "_printer._tcp.local", "_raop._tcp.local", "_device-info._tcp.local",
-                  "_companion-link._tcp.local", "_hap._tcp.local", "_spotify-connect._tcp.local",
-                  "_ssh._tcp.local", "_sonos._tcp.local", "_homekit._tcp.local"}
-        types = sorted((service_types | common))
-        for i in range(0, len(types), 12):
-            q = dnsmsg.build_query([(t, dnsmsg.T_PTR) for t in types[i:i + 12]], txid=0x2222 + i)
+    def send(names, txid):
+        for i in range(0, len(names), 12):
+            q = dnsmsg.build_query([(n, dnsmsg.T_PTR) for n in names[i:i + 12]], txid=txid + i)
             for s, idx in socks:
                 try:
-                    s.sendto(q, dest(idx))
+                    s.sendto(q, ("ff02::fb", 5353, 0, idx) if idx is not None else MDNS_ADDR)
                 except OSError:
                     pass
-        for s, _ in socks:
-            _collect(s, duration / 2.0 / max(1, len(socks)), handle)
+
+    def listen(until):
+        for k, (s, _) in enumerate(socks):
+            _collect(s, max(0.0, (start + duration * until - time.monotonic()) / (len(socks) - k)), handle)
+
+    try:
+        send(["_services._dns-sd._udp.local"], 0x1111)
+        listen(0.24)
+        send(sorted(service_types | common), 0x2222)
+        listen(0.34)
+        # everything once more, still before the scan starts probing: one lost datagram must
+        # not cost a device its name, and types announced late get asked too
+        send(["_services._dns-sd._udp.local"] + sorted(service_types | common), 0x3333)
+        listen(0.44)
+        if ready is not None:
+            ready.set()
+        listen(1.0)
     finally:
+        if ready is not None:
+            ready.set()
         for s, _ in socks:
             s.close()
     for name, ip in host_ips.items():
@@ -372,7 +485,10 @@ def parse_ssdp(data):
 
 
 def ssdp_discover(iface_ips, duration=2.5, ifindexes=None):
-    """Return {ip: {"location": url, "server": str, "st": [..]}} (IPv6 with `ifindexes`)."""
+    """Return {ip: {"locations": [url, ..], "server": str, "st": [..]}} (IPv6 with `ifindexes`).
+
+    A device may run several UPnP stacks, each announcing a description of its own: the
+    locations are kept in the order they arrived, "server" is that of the first answer."""
     found = {}
     host = "[FF02::C]:1900" if ifindexes is not None else "239.255.255.250:1900"
     msg = ("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\n"
@@ -380,12 +496,16 @@ def ssdp_discover(iface_ips, duration=2.5, ifindexes=None):
 
     def handle(data, addr):
         h = parse_ssdp(data)
-        e = found.setdefault(_host_addr(addr), {"location": "", "server": "", "st": []})
-        if h.get("location") and not e["location"]:
-            e["location"] = h["location"]
+        sender = _host_addr(addr)
+        if sender not in found and len(found) >= MAX_SENDERS:
+            return
+        e = found.setdefault(sender, {"locations": [], "server": "", "st": []})
+        location = h.get("location", "")[:1024]
+        if location and location not in e["locations"] and len(e["locations"]) < MAX_LOCATIONS:
+            e["locations"].append(location)
         if h.get("server") and not e["server"]:
             e["server"] = h["server"][:120]
-        st = h.get("st") or h.get("nt")
+        st = (h.get("st") or h.get("nt") or "")[:200]
         if st and st not in e["st"] and len(e["st"]) < 12:
             e["st"].append(st)
 
@@ -417,6 +537,9 @@ _WSD_PROBE = (
     '<soap:Body><wsd:Probe/></soap:Body></soap:Envelope>')
 
 
+_WSD_TYPES = re.compile(rb"<(?:[\w.-]+:)?Types>([^<]*)<")
+
+
 def wsd_discover(iface_ips, duration=2.0, ifindexes=None, sources=None):
     """WS-Discovery probe (Windows PCs, printers, scanners, many NAS).
 
@@ -426,8 +549,11 @@ def wsd_discover(iface_ips, duration=2.0, ifindexes=None, sources=None):
     msg = (_WSD_PROBE % uuid.uuid4()).encode()
 
     def handle(data, addr):
-        m = re.search(rb"<[^>]*:?Types>([^<]*)<", data)
-        found.setdefault(_host_addr(addr), {"types": (m.group(1).decode("utf-8", "replace")[:200] if m else "")})
+        sender = _host_addr(addr)
+        if sender in found or len(found) >= MAX_SENDERS:
+            return
+        m = _WSD_TYPES.search(data)
+        found[sender] = {"types": (m.group(1)[:200].decode("utf-8", "replace") if m else "")}
 
     socks = _open_mcast(iface_ips, ifindexes, sources)
     try:
@@ -445,56 +571,338 @@ def wsd_discover(iface_ips, duration=2.0, ifindexes=None, sources=None):
     return found
 
 
-def upnp_description(url, timeout=2.0):
-    """Fetch the UPnP device description -> friendlyName, manufacturer, model..."""
+# ---------------------------------------------------------------------- HTTP
+# A deliberately small HTTP client instead of urllib. The scanner only ever connects to the
+# address it is looking at: no proxies, no other URL schemes (urllib also opens file:// and
+# ftp://), and redirects stay on the device. Every exchange has one overall deadline, so a
+# device cannot hold up a scan by sending its answer byte by byte. Certificates are not
+# verified: devices on a LAN use self-signed ones, and nothing confidential is sent.
+MAX_HEADER = 32768
+_HEADER_END = re.compile(rb"\r?\n\r?\n")
+_STATUS = re.compile(r"^HTTP/1\.[01] (\d{3})(?: |$)")
+_HEX = re.compile(rb"^[0-9A-Fa-f]{1,8}$")
+_PATH_OK = re.compile(r"^/[\x21-\x7e]{0,1023}$")
+_MOVED = re.compile(r"\b(moved|found|redirect\w*|see other)\b", re.I)  # "301 Moved Permanently", "Object moved"
+_HOST_OK = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+_tls = []
+
+
+class _Deadline:
+    def __init__(self, seconds):
+        self.end = time.monotonic() + seconds
+
+    def left(self, cap=None):
+        left = self.end - time.monotonic()
+        if left <= 0:
+            raise socket.timeout("deadline reached")
+        return min(left, cap) if cap else left
+
+
+def _tls_context():
+    if not _tls:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        _tls.append(ctx)
+    return _tls[0]
+
+
+class _Chunked:
+    """Incremental decoder for "Transfer-Encoding: chunked"."""
+
+    def __init__(self):
+        self.buf = b""
+        self.need = 0  # bytes still missing from the current chunk
+        self.done = False
+
+    def feed(self, data):
+        self.buf += data
+        out = []
+        while not self.done and self.buf:
+            if self.need:
+                out.append(self.buf[:self.need])
+                self.need -= len(out[-1])
+                self.buf = self.buf[len(out[-1]):]
+                continue
+            eol = self.buf.find(b"\n")
+            if eol < 0:
+                self.done = len(self.buf) > 64  # no size line: not chunked after all
+                break
+            line, self.buf = self.buf[:eol].split(b";")[0].strip(), self.buf[eol + 1:]
+            if not line:
+                continue  # the line break that ends a chunk
+            if not _HEX.match(line):
+                self.done = True
+                break
+            self.need = int(line, 16)
+            self.done = self.need == 0
+        return b"".join(out)
+
+
+def _http_get(addr, port, tls, host, path, deadline, max_body, agent):
+    """One GET request to `addr`:`port`. Returns (status, headers, body). The body may be cut
+    short: by `max_body`, by the deadline or by the device closing the connection."""
+    ipaddress.ip_address(addr.split("%")[0])  # an address, never a name that would be resolved
+    family, sockaddr = _sockaddr(addr, port)
+    sock = socket.socket(family, socket.SOCK_STREAM)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "SynetScan/1.0 UPnP/1.1"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = r.read(262144)
-        root = ET.fromstring(body)
-    except Exception:  # noqa: BLE001 - many malformed devices out there
+        sock.settimeout(deadline.left(2.0))
+        sock.connect(sockaddr)
+        if tls:
+            sock.settimeout(deadline.left())
+            sock = _tls_context().wrap_socket(sock)
+        sock.settimeout(deadline.left())
+        sock.sendall(("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nAccept: */*\r\n"
+                      "Accept-Encoding: identity\r\nConnection: close\r\n\r\n" % (path, host, agent)).encode("ascii"))
+        buf, scanned, interim = b"", 0, 0
+        while True:
+            m = _HEADER_END.search(buf, max(0, scanned - 3))
+            if not m:
+                if len(buf) > MAX_HEADER:
+                    raise ValueError("HTTP header too large")
+                scanned = len(buf)
+                sock.settimeout(deadline.left())
+                chunk = sock.recv(8192)
+                if chunk:
+                    buf += chunk
+                    continue
+                if not _STATUS.match(buf.decode("latin-1").strip()):
+                    raise ValueError("no HTTP header")
+                buf += b"\r\n\r\n"  # tiny servers end the header with the connection
+                continue
+            lines = buf[:m.start()].decode("latin-1").split("\n")
+            st = _STATUS.match(lines[0].strip())
+            if not st:
+                raise ValueError("not an HTTP answer")
+            status = int(st.group(1))
+            if 100 <= status < 200 and status != 101 and interim < 4:
+                # "100 Continue" and the like: the real answer follows
+                buf, scanned, interim = buf[m.end():], 0, interim + 1
+                continue
+            break
+        headers = {}
+        for line in lines[1:]:
+            k, sep, v = line.partition(":")
+            if sep:
+                headers.setdefault(k.strip().lower(), v.strip())
+        if status < 200 or status in (204, 304):
+            return status, headers, b""
+        chunked = _Chunked() if "chunked" in headers.get("transfer-encoding", "").lower() else None
+        want = max_body
+        if not chunked and headers.get("content-length", "").isdigit():
+            want = min(max_body, int(headers["content-length"]))
+        body = bytearray()
+        data = buf[m.end():]
+        try:
+            while True:
+                body += chunked.feed(data) if chunked else data
+                if len(body) >= want or (chunked and chunked.done):
+                    break
+                sock.settimeout(deadline.left())
+                data = sock.recv(16384)
+                if not data:
+                    break
+        except OSError:  # deadline or connection reset: what has arrived is still useful
+            pass
+        return status, headers, bytes(body[:want])
+    finally:
+        sock.close()
+
+
+def _url_host(ip):
+    return "[%s]" % ip if ":" in ip else ip
+
+
+def _request_path(u):
+    """Path and query of a parsed URL for the request line: printable ASCII only, so nothing
+    in it can end the line and start a request of its own. None if it is unusable."""
+    path = urllib.parse.quote((u.path or "/") + ("?" + u.query if u.query else ""), safe="/?:@!$&'()*+,;=%~-._")
+    return path if _PATH_OK.match(path) else None
+
+
+def _redirect(headers, tls, host, port, path, ip):
+    """Where a redirect leads, as (tls, host, port, path) – or None if it is not followed.
+
+    The connection always goes to `ip` again; the host name of the redirect is only sent as
+    Host header (routers redirect to names like "fritz.box"). A redirect to another IP address
+    is another machine and is not followed."""
+    location = headers.get("location", "")
+    if not location or len(location) > 2048:
         return None
+    base = "%s://%s:%d%s" % ("https" if tls else "http", host, port, path)
+    try:
+        u = urllib.parse.urlsplit(urllib.parse.urljoin(base, location))
+        new_port = u.port
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or u.username is not None or u.password is not None:
+        return None
+    new_host = u.hostname or ""
+    try:
+        if ipaddress.ip_address(new_host) != ipaddress.ip_address(ip):
+            return None
+        new_host = _url_host(ip)
+    except ValueError:
+        new_host = new_host.rstrip(".")
+        if not _HOST_OK.match(new_host):
+            return None
+    if new_port is None:
+        new_port = 443 if u.scheme == "https" else 80
+    new_path = _request_path(u)
+    if not 0 < new_port < 65536 or not new_path:
+        return None
+    return u.scheme == "https", new_host, new_port, new_path
+
+
+def _html_title(body):
+    low = body.lower()
+    start = low.find(b"<title")
+    start = low.find(b">", start) if start >= 0 else -1
+    end = low.find(b"</title", start) if start >= 0 else -1
+    if end < 0:
+        return ""
+    return clean_text(html.unescape(body[start + 1:end][:2000].decode("utf-8", "replace")), 100)
+
+
+def http_info(ip, port, timeout=4.0):
+    """Title and Server header of the web page on `ip`:`port`, within `timeout` seconds in
+    total. Redirects are followed on the device itself only."""
+    if "%" in ip:
+        return None
+    deadline = _Deadline(timeout)
+    tls, host, cur_port, path = port in (443, 5001, 8443), _url_host(ip), port, "/"
+    server = title = ""
+    answered = False
+    try:
+        for _hop in range(10):  # as many as urllib followed; the deadline bounds the time
+            default = 443 if tls else 80
+            status, headers, body = _http_get(ip, cur_port, tls, host if cur_port == default else "%s:%d" % (host, cur_port),
+                                              path, deadline, 65536, "Mozilla/5.0 SynetScan")
+            answered = True
+            server = headers.get("server", "") or server
+            title = _html_title(body)
+            if status not in (301, 302, 303, 307, 308):
+                break
+            if _MOVED.search(title):
+                title = ""  # the page of a redirect that is not followed names nothing
+            target = _redirect(headers, tls, host, cur_port, path, ip)
+            if not target:
+                break
+            tls, host, cur_port, path = target
+    except (OSError, ValueError, UnicodeError):
+        if not answered:
+            return None
+    return {"port": port, "server": clean_text(server, 100), "title": title}
+
+
+# ---------------------------------------------------------------------- UPnP
+_UPNP_FIELDS = ("friendlyName", "manufacturer", "modelName", "modelNumber", "deviceType", "modelDescription")
+
+
+def parse_upnp(body):
+    """The identifying fields of a UPnP device description (first occurrence = root device).
+
+    Read as a stream, without building a tree. A document that declares entities is
+    refused: entity expansion ("billion laughs") is the classic way to exhaust the memory of
+    whoever parses it. A plain DOCTYPE is fine. Returns None for those, else a dict."""
     out = {}
-    for el in root.iter():
-        tag = el.tag.split("}")[-1]
-        if tag in ("friendlyName", "manufacturer", "modelName", "modelNumber", "deviceType",
-                   "modelDescription") and tag not in out and (el.text or "").strip():
-            out[tag] = el.text.strip()[:120]
+    cur = {"tag": None, "text": [], "size": 0}
+
+    def refuse(*_args):
+        raise ValueError("DTD in a device description")
+
+    def close(_name=None):
+        if cur["tag"]:
+            text = clean_text("".join(cur["text"]), 120)
+            if text and cur["tag"] not in out:
+                out[cur["tag"]] = text
+        cur["tag"], cur["text"], cur["size"] = None, [], 0
+
+    def start(name, _attrs):
+        close()
+        tag = name.rsplit(":", 1)[-1]
+        if tag in _UPNP_FIELDS and tag not in out:
+            cur["tag"] = tag
+
+    def chars(data):
+        if cur["tag"] and cur["size"] < 1024:
+            cur["text"].append(data)
+            cur["size"] += len(data)
+
+    parser = expat.ParserCreate()
+    parser.EntityDeclHandler = refuse
+    parser.UnparsedEntityDeclHandler = refuse
+    parser.ExternalEntityRefHandler = refuse
+    parser.StartElementHandler = start
+    parser.EndElementHandler = close
+    parser.CharacterDataHandler = chars
+    try:
+        parser.Parse(body, True)
+    except ValueError:
+        return None
+    except expat.ExpatError:
+        pass  # many devices send sloppy XML: keep what was readable up to the error
     return out
 
 
-# ---------------------------------------------------------------------- HTTP
-_TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
+def upnp_description(location, sender, timeout=4.0):
+    """Fetch the UPnP device description announced over SSDP -> friendlyName, manufacturer, model…
 
-
-def http_info(ip, port, timeout=2.0):
-    scheme = "https" if port in (443, 5001, 8443) else "http"
-    if "%" in ip:
-        return None
-    url = "%s://%s:%d/" % (scheme, "[%s]" % ip if ":" in ip else ip, port)
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 SynetScan"})
+    `location` comes out of an unauthenticated datagram. Only its scheme, port and path are
+    used; the request always goes to `sender`, the address the announcement came from
+    (link-local IPv6 with "%iface"). A LOCATION can therefore not make the NAS read local
+    files or talk to any other host."""
     try:
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-        with opener.open(req, timeout=timeout) as r:
-            server = r.headers.get("Server", "")
-            body = r.read(65536)
-    except urllib.error.HTTPError as e:
-        server = e.headers.get("Server", "") if e.headers else ""
-        try:
-            body = e.read(65536)
-        except Exception:  # noqa: BLE001
-            body = b""
-    except Exception:  # noqa: BLE001
+        u = urllib.parse.urlsplit(str(location).strip())
+        port = u.port
+    except ValueError:
         return None
-    title = ""
-    m = _TITLE.search(body or b"")
-    if m:
-        title = html.unescape(m.group(1).decode("utf-8", "replace"))
-        title = re.sub(r"\s+", " ", title).strip()[:100]
-    return {"port": port, "server": server[:100], "title": title}
+    if u.scheme not in ("http", "https"):
+        return None
+    tls = u.scheme == "https"
+    if port is None:
+        port = 443 if tls else 80
+    path = _request_path(u)
+    if not 0 < port < 65536 or not path:
+        return None
+    deadline = _Deadline(timeout)
+    addr = sender.split("%")[0]
+    host = "%s:%d" % (_url_host(addr), port)
+    try:
+        for _hop in range(3):
+            status, headers, body = _http_get(sender, port, tls, host, path, deadline, 262144, "SynetScan/1.0 UPnP/1.1")
+            if status not in (301, 302, 303, 307, 308):
+                break
+            target = _redirect(headers, tls, _url_host(addr), port, path, addr)  # on the same device only
+            if not target:
+                return None
+            tls, name, port, path = target
+            host = name if port == (443 if tls else 80) else "%s:%d" % (name, port)
+    except (OSError, ValueError, UnicodeError):
+        return None
+    if not 200 <= status < 300:
+        return None
+    return parse_upnp(body)
+
+
+def upnp_first_description(locations, sender, budget=8.0):
+    """The first of a device's announced descriptions that can be read, or None.
+
+    Not every UPnP stack on a device describes it: a router may answer for its gateway
+    service and for an agent of its provider, and only the first names the model. `budget`
+    bounds the time for all of them together."""
+    end = time.monotonic() + budget
+    best = None
+    for location in locations:
+        left = end - time.monotonic()
+        if left < 0.5:
+            break
+        desc = upnp_description(location, sender, min(4.0, left))
+        if desc and (desc.get("friendlyName") or desc.get("modelName")):
+            return desc
+        if desc and len(desc) > len(best or {}):
+            best = desc  # readable, but names nothing: another stack may do better
+    return best
 
 
 # ----------------------------------------------------------------------- WOL

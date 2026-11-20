@@ -8,7 +8,7 @@ import time
 from . import ipv6, netinfo, oui, probes
 from .classify import DEFAULT_PORTS, bogus_model, classify, join_model, junk_name, generic_upnp_name
 from .targets import build_targets
-from .util import is_random_mac, log, normalize_mac, now
+from .util import error_text, is_random_mac, log, normalize_mac, now
 
 DISCOVERY_PORTS = [80, 443, 22, 445, 62078, 8080, 1400, 8001, 8009]
 ARP_SETTLE = 8.0  # seconds until a stale ARP entry of a vanished host is purged
@@ -105,13 +105,15 @@ class Scanner:
 
         # multicast discovery runs in the background during the sweep
         mcast = {}
+        browse_ready = threading.Event()
 
         def run_mcast():
             if cfg.get("use_mdns", True):
                 try:
-                    mcast["mdns"] = probes.mdns_browse(mcast_ips)
+                    mcast["mdns"] = probes.mdns_browse(mcast_ips, ready=browse_ready)
                 except Exception as e:  # noqa: BLE001
                     log.warning("mDNS browse failed: %s", e)
+            browse_ready.set()
             if cfg.get("use_ssdp", True):
                 try:
                     mcast["ssdp"] = probes.ssdp_discover(mcast_ips)
@@ -120,6 +122,9 @@ class Scanner:
 
         mthread = threading.Thread(target=run_mcast, name="mcast", daemon=True)
         mthread.start()
+        # The browse gets a head start: a device that is being probed may answer it late,
+        # without its host name or not at all (seen with a Hue bridge).
+        browse_ready.wait(2.0)
 
         # ---- phase 1: discovery sweep
         alive = {}
@@ -181,7 +186,7 @@ class Scanner:
                 except Exception as e:  # noqa: BLE001
                     log.warning("IPv6 discovery failed: %s", e)
                     v6.clear()
-                    v6["error"] = str(e)
+                    v6["error"] = error_text(e)
             v6_thread = threading.Thread(target=run_v6, name="ipv6", daemon=True)
             v6_thread.start()
 
@@ -194,6 +199,7 @@ class Scanner:
         # ---- phase 2: enrichment
         ports = sorted({int(p) for p in cfg.get("ports", DEFAULT_PORTS) if 0 < int(p) < 65536})
         hosts = {}
+        asked_directly = []
 
         def apply_mdns(dev, md):
             if md.get("hostname"):
@@ -211,11 +217,11 @@ class Scanner:
             if names:
                 dev["friendly"] = names[0]
 
-        def apply_ssdp(dev, sd):
+        def apply_ssdp(dev, sd, addr):
+            # `addr` is where the announcement came from; the description is only ever
+            # fetched from there, whatever host the announced LOCATION names
             dev["ssdp_server"] = sd["server"]
-            if not sd["location"]:
-                return
-            desc = probes.upnp_description(sd["location"])
+            desc = probes.upnp_first_description(sd["locations"], addr)
             if not desc:
                 return
             dev["upnp"] = desc
@@ -231,9 +237,11 @@ class Scanner:
         def apply_http(dev, addr, open_ports):
             if not cfg.get("use_http", True):
                 return
+            budget = time.monotonic() + 8  # per device, however slowly its web servers answer
             for p in (80, 8080, 443, 5000):
-                if p in open_ports:
-                    info_http = probes.http_info(addr, p)
+                left = budget - time.monotonic()
+                if p in open_ports and left > 0.5:
+                    info_http = probes.http_info(addr, p, min(4.0, left))
                     if info_http and (info_http["title"] or info_http["server"]):
                         dev["http"] = info_http
                         return
@@ -271,6 +279,15 @@ class Scanner:
                 shared = sorted(a for a, m in proxy_arp.items() if m == dev["mac"])
                 if shared:
                     dev["proxy_arp_for"] = shared
+            md = mdns.get(ip)
+            if md and ip not in own and (not md.get("hostname") or not md.get("ipv6") and cfg.get("use_ipv6", True)):
+                # its answers to the browse came without its host name or addresses: ask the
+                # device itself, before the port scan disturbs it
+                had_name = bool(md.get("hostname"))
+                name, addrs = probes.mdns_host(ip, md["services"], name=md.get("hostname") or "")
+                md["hostname"] = md.get("hostname") or name
+                md["ipv6"] = addrs or md.get("ipv6") or []
+                asked_directly.append((had_name, bool(name), bool(addrs)))
             open_ports = port_scan(ip, info["open"])
             dev["ports"] = sorted(open_ports)
             if cfg.get("use_dns", True):
@@ -282,7 +299,6 @@ class Scanner:
                     dev["workgroup"] = nb["workgroup"]
                     if not dev.get("mac") and normalize_mac(nb["mac"]):
                         dev["mac"] = normalize_mac(nb["mac"])
-            md = mdns.get(ip)
             if md:
                 apply_mdns(dev, md)
             elif cfg.get("use_mdns", True) and ip not in own:
@@ -291,7 +307,7 @@ class Scanner:
                     dev["mdns_name"] = name
             sd = ssdp.get(ip)
             if sd:
-                apply_ssdp(dev, sd)
+                apply_ssdp(dev, sd, ip)
             apply_http(dev, ip, open_ports)
             finish(dev)
             hosts[ip] = dev
@@ -325,6 +341,14 @@ class Scanner:
                     log.info("dropping stale ARP entry %s", ip)
                     hosts.pop(ip, None)
 
+        nameless = [a for a in asked_directly if not a[0]]
+        if nameless:
+            log.info("mDNS: %d device(s) answered the browse without a host name; asked directly, %d gave it "
+                     "and %d their IPv6 addresses", len(nameless), sum(1 for a in nameless if a[1]),
+                     sum(1 for a in nameless if a[2]))
+        if len(nameless) < len(asked_directly):
+            log.info("mDNS: %d device(s) answered the browse without IPv6 addresses; %d gave them when asked directly",
+                     len(asked_directly) - len(nameless), sum(1 for a in asked_directly if a[0] and a[2]))
         self._merge_self(hosts, gateways)
         v6_status = {"enabled": bool(cfg.get("use_ipv6", True))}
         if v6_thread is not None:
@@ -338,7 +362,7 @@ class Scanner:
                     raise
                 except Exception as e:  # noqa: BLE001 - IPv6 must never cost the IPv4 results
                     log.exception("IPv6 merge failed")
-                    v6_status["error"] = str(e)
+                    v6_status["error"] = error_text(e)
             v6_status.update(ifaces=list(v6.get("ifaces") or []), routable=bool(v6.get("routable")),
                              with_ipv6=sum(1 for d in hosts.values() if d.get("ipv6")),
                              only=sum(1 for d in hosts.values() if d.get("ipv6") and not d.get("ip")))
@@ -454,7 +478,7 @@ class Scanner:
                     break
             for a in addrs:
                 if a in ssdp6:
-                    apply_ssdp(dev, ssdp6[a])
+                    apply_ssdp(dev, ssdp6[a], a if ipv6.kind(a) != "link" else "%s%%%s" % (a, n["dev"]))
                     dev["via"] = sorted(set(dev["via"]) | {"ssdp"})
                     break
             web = next((a for a in addrs if ipv6.kind(a) != "link"), "")

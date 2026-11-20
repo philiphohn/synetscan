@@ -170,6 +170,32 @@ A /24 network takes roughly 8–15 seconds to scan, IPv6 included.
 - **Errors.** The CGI always answers HTTP 200 with `"success": false`, so DSM's nginx never
   swaps the answer for an HTML error page. The UI translates errors by their `code`.
 
+## 🔒 Security
+
+Everything a device tells about itself comes from the network: names, models, service
+announcements, web page titles. Anyone in the LAN can send such answers, so SynetScan
+treats all of it as untrusted input.
+
+- **Names stay text.** Control characters and invisible or direction-changing Unicode
+  characters are removed and every string is cut to a fixed length before it is stored.
+  The UI shows these strings as text, never as markup. A Content-Security-Policy on the
+  page allows no inline or foreign scripts and no connection to another host.
+- **The NAS only talks to the device it asked.** A UPnP description is fetched only from the
+  device that announced it. Redirects are followed on the same device only, and no name
+  that came from the network is resolved. A device cannot make the NAS fetch pages from
+  other machines or read local files.
+- **A device cannot stall or flood a scan.** Each device has a fixed time budget, however
+  slowly it answers. Answer sizes, the number of devices and the history are limited. XML
+  with a DOCTYPE is refused.
+- **CSV export.** Cells that a spreadsheet would run as a formula are neutralised.
+- **API.** Every call needs the DSM session of an administrator. Changes need a POST with a
+  JSON body, and requests started by another website are refused.
+- **On the NAS.** The service runs as the unprivileged package user. Its data and log are
+  readable by that user only. There is no database and no shell command built from input.
+
+What this cannot change: the discovery protocols have no authentication. A device can
+still lie about its name or model, so read a device's name as a claim, not as proof.
+
 ## 📁 Repository layout
 
 ```
@@ -183,12 +209,15 @@ src/
 spk/                      INFO template, conf/privilege, lifecycle scripts, package icons
 tools/
   devserver.py            local preview with a mock DSM desktop
+  dev_cgi.py              the preview's api.cgi (the real API code without the DSM login)
   mock_dsm.html           the mock desktop (window frame + iframe)
   shot.mjs                headless-Chrome screenshot helper (CDP, no deps)
   demo/                   records docs/images/demo.gif from made-up data
   build_oui.py            Wireshark manuf -> oui.txt.gz
   make_icons.py           renders the app/package icons (Pillow)
-tests/test_core.py        unit tests
+tests/
+  test_core.py            unit tests
+  test_security.py        what a hostile device, web page or request may try
 build.sh                  builds dist/SynetScan-<version>-noarch.spk
 ```
 
@@ -199,9 +228,10 @@ python3 -m unittest discover -s tests      # unit tests
 python3 tools/devserver.py                 # http://127.0.0.1:8640/  (?lang=de, ?page=devices)
 ```
 
-The dev server runs the real daemon, with its data in `.devvar/`, and the real
-`api.cgi`. Setting `SYNETSCAN_DEV=1` skips the DSM login check. To scan specific
-ranges, edit them in **Settings → Scan Targets**.
+The dev server runs the real daemon, with its data in `.devvar/`, and the real API
+code. There is no DSM on a development machine, so `tools/dev_cgi.py` stands in for the
+login check; the package itself has no switch to skip it. To scan specific ranges, edit
+them in **Settings → Scan Targets**.
 
 To update the vendor database:
 
@@ -210,7 +240,9 @@ curl -o third_party/manuf https://www.wireshark.org/download/automated/data/manu
 python3 tools/build_oui.py third_party/manuf src/share/oui.txt.gz
 ```
 
-To release a new version, change `__version__` in `src/lib/synetscan/__init__.py`.
+To release a new version, change the version in four places: `__version__` in
+`src/lib/synetscan/__init__.py`, `VERSION` in `src/ui/synetscan.js`, `"version"` in
+`src/ui/config` and the four `?v=` suffixes in `src/ui/index.html`.
 `BUILD=0002 ./build.sh` sets the build number.
 
 ## ⚠️ Limitations

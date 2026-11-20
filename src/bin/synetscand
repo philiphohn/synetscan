@@ -10,7 +10,8 @@ done
 [ -n "$PY" ] || { echo "python3 not found" >&2; exit 1; }
 export PYTHONDONTWRITEBYTECODE=1
 exec "$PY" -I -c "
-import sys
+import os, sys
+os.umask(0o077)
 sys.path.insert(0, sys.argv[1])
 from synetscan.util import setup_logging
 from synetscan import daemon

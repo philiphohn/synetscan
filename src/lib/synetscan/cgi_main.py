@@ -2,24 +2,32 @@
 import json
 import os
 import re
+import select
 import subprocess
 import sys
+import time
 import urllib.parse
 
 from . import daemon, netinfo
 
 AUTH_CGI = "/usr/syno/synoman/webman/modules/authenticate.cgi"
-DEFAULT_VAR = "/var/packages/SynetScan/var"
-WRITE_ACTIONS = {"device_update", "device_known", "device_delete", "wake", "scan", "cancel",
-                 "clear_events", "config_set", "clear_offline", "reset"}
+VAR_DIR = "/var/packages/SynetScan/var"
+# Everything that is not listed here changes something and needs a POST with a JSON body.
+READ_ACTIONS = {"status", "overview", "devices", "events", "scans", "config_get", "export", "client"}
+# What the service answers, and "client", which is answered here. Nothing else gets further.
+ACTIONS = {name[4:] for name in dir(daemon.Service) if name.startswith("api_")} | {"client"}
 USER_RE = re.compile(r"^[\w.@\\ $-]{1,128}$", re.U)
+DRAIN_LIMIT = 16 * 1024 * 1024  # what is read of a body too large to use, before giving up
+BODY_TIMEOUT = 15  # seconds for a body that arrives slower, or shorter, than announced
 
 
 def respond(obj, status="200 OK", ctype="application/json; charset=utf-8", extra=None):
     body = obj if isinstance(obj, bytes) else json.dumps(obj, ensure_ascii=False).encode("utf-8")
     out = sys.stdout.buffer
+    # An API answer is data: never rendered, framed or sent along as a referrer.
     out.write(("Status: %s\r\nContent-Type: %s\r\nCache-Control: no-store\r\n"
-               "X-Content-Type-Options: nosniff\r\n" % (status, ctype)).encode())
+               "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n"
+               "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\n" % (status, ctype)).encode())
     for k, v in (extra or {}).items():
         out.write(("%s: %s\r\n" % (k, v)).encode())
     out.write(b"\r\n" + body)
@@ -33,14 +41,16 @@ def error(code, message, status="200 OK"):
     respond({"success": False, "error": {"code": code, "message": message}})
 
 
-def authenticate(query):
-    """Return the DSM user name of the current session, or None."""
-    if os.environ.get("SYNETSCAN_DEV") == "1":
-        return "dev"
+def authenticate():
+    """Return the DSM user name of the current session, or None.
+
+    DSM's own authenticate.cgi decides: it checks the session cookie and, unless the admin
+    switched DSM's CSRF protection off, the SynoToken. The token is taken from the request
+    header only – the UI never puts it in a URL, where it would end up in logs."""
     if not os.access(AUTH_CGI, os.X_OK):
         return None
     env = dict(os.environ)
-    token = env.get("HTTP_X_SYNO_TOKEN") or (query.get("SynoToken") or [""])[0]
+    token = env.get("HTTP_X_SYNO_TOKEN", "")
     env["QUERY_STRING"] = "SynoToken=" + urllib.parse.quote(token) if token else ""
     env["REQUEST_METHOD"] = "GET"
     env.pop("CONTENT_LENGTH", None)
@@ -56,7 +66,7 @@ def authenticate(query):
 
 
 def is_admin(user):
-    if os.environ.get("SYNETSCAN_DEV") == "1" or user in ("admin", "root"):
+    if user in ("admin", "root"):
         return True
     try:
         with open("/etc/group", encoding="utf-8", errors="replace") as f:
@@ -78,19 +88,78 @@ def is_admin(user):
     return False
 
 
+def cross_site():
+    """True if the browser says the request was started by another website.
+
+    Sec-Fetch-Site is set by the browser itself and cannot be forged by a page. SynetScan's
+    UI is served from the same origin as this API, so its requests are always "same-origin"
+    ("none": the address was typed in). Another site – also another web application on a
+    neighbouring host name or port – has no business calling it. Older browsers do not send
+    the header; for them the session token and the JSON-only POST below remain."""
+    return os.environ.get("HTTP_SEC_FETCH_SITE", "").strip().lower() not in ("", "same-origin", "none")
+
+
+def read_body():
+    """The request body, read before anything is answered: a web server may drop the answer of
+    a CGI that ends with its request body unread (seen over plain http on a DS923+, where
+    refused POSTs then failed as network errors). None if it is larger than the service takes."""
+    try:
+        length = max(0, int(os.environ.get("CONTENT_LENGTH") or 0))
+    except ValueError:
+        length = 0
+    stream = getattr(sys.stdin, "buffer", None)
+    if not length or stream is None:
+        return b""
+    keep = length <= daemon.MAX_REQUEST
+    chunks, left = [], min(length, DRAIN_LIMIT)
+    try:
+        fd = stream.fileno()
+    except (OSError, ValueError, AttributeError):
+        fd = None  # not a real file (tests)
+    deadline = time.monotonic() + BODY_TIMEOUT
+    try:
+        while left > 0:
+            if fd is not None:
+                wait = deadline - time.monotonic()
+                if wait <= 0 or not select.select([fd], [], [], wait)[0]:
+                    break
+                try:
+                    chunk = os.read(fd, min(left, 65536))
+                except BlockingIOError:  # a non-blocking stdin that woke up without data
+                    continue
+            else:
+                chunk = stream.read(min(left, 65536))
+            if not chunk:
+                break
+            left -= len(chunk)
+            if keep:
+                chunks.append(chunk)
+    except (OSError, ValueError):
+        pass
+    return b"".join(chunks) if keep else None
+
+
 def main():
-    var_dir = os.environ.get("SYNETSCAN_VAR", DEFAULT_VAR)
+    body = read_body()
     query = urllib.parse.parse_qs(os.environ.get("QUERY_STRING", ""))
     action = (query.get("action") or [""])[0]
     method = os.environ.get("REQUEST_METHOD", "GET").upper()
 
-    user = authenticate(query)
+    if cross_site():
+        return error("cross_site", "Request from another website refused", "403 Forbidden")
+    user = authenticate()
     if not user:
         return error("auth", "Not logged in to DSM or session expired", "401 Unauthorized")
     if not is_admin(user):
         return error("permission", "SynetScan is only available to administrators", "403 Forbidden")
-    if action in WRITE_ACTIONS and method != "POST":
+    if action not in ACTIONS:
+        return error("unknown_action", "Unknown action", "400 Bad Request")
+    if method not in ("GET", "POST") or (action not in READ_ACTIONS and method != "POST"):
         return error("method", "POST required", "405 Method Not Allowed")
+    # A web page of another origin can make a browser send a form or plain text along with the
+    # admin's cookies, but not JSON: that needs a permission DSM never gives (CORS preflight).
+    if method == "POST" and not os.environ.get("CONTENT_TYPE", "").strip().lower().startswith("application/json"):
+        return error("bad_request", "JSON body required", "415 Unsupported Media Type")
 
     if action == "client":
         # Answered here, not by the service: only the CGI sees the browser's address.
@@ -98,23 +167,18 @@ def main():
 
     params = {}
     if method == "POST":
-        try:
-            length = int(os.environ.get("CONTENT_LENGTH") or 0)
-        except ValueError:
-            length = 0
-        if length > daemon.MAX_REQUEST:
+        if body is None:
             return error("too_large", "Request too large", "413 Payload Too Large")
-        raw = sys.stdin.buffer.read(length) if length else b""
-        if raw:
+        if body:
             try:
-                params = json.loads(raw.decode("utf-8"))
-            except ValueError:
+                params = json.loads(body.decode("utf-8"))
+            except (ValueError, RecursionError):
                 return error("bad_request", "Invalid JSON body", "400 Bad Request")
             if not isinstance(params, dict):
                 return error("bad_request", "JSON object expected", "400 Bad Request")
 
     try:
-        resp = daemon.request(var_dir, action, params, user=user)
+        resp = daemon.request(VAR_DIR, action, params, user=user)
     except PermissionError:
         # the socket is private to the package user; this CGI apparently runs as someone else
         return error("daemon_perm", "api.cgi runs as uid %d and may not connect to the SynetScan service"

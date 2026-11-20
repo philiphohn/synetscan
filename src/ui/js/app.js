@@ -343,7 +343,7 @@
     var h = '<table class="grid"><colgroup>' + cols.map(function (c) { return '<col style="width:' + (c.width || "auto") + '">'; }).join("") + "</colgroup><thead><tr>";
     h += cols.map(function (c) {
       var s = self.sort && self.sort.key === c.key;
-      return "<th" + (c.sortable === false ? "" : ' data-k="' + c.key + '"') + (s ? ' class="sorted"' : "") + ' title="' + esc(c.title) + '">' + esc(c.title) +
+      return "<th" + (c.sortable === false ? "" : ' data-k="' + esc(c.key) + '"') + (s ? ' class="sorted"' : "") + ' title="' + esc(c.title) + '">' + esc(c.title) +
         (s ? '<span class="arrow">' + (self.sort.dir > 0 ? "▲" : "▼") + "</span>" : "") + "</th>";
     }).join("") + "</tr></thead><tbody>";
     h += rows.map(function (r, i) {
@@ -556,7 +556,7 @@
       var col = (TC[t] || TC.unknown)[1];
       return '<div class="bar-row" data-type="' + esc(t) + '">' + devIcon(t) + '<span class="bar-name">' + esc(typeName(t)) +
         '</span><div class="bar"><div style="width:' + Math.max(4, Math.round(100 * d.types[t] / max)) + "%;background:" + col +
-        '"></div></div><span class="num">' + d.types[t] + "</span></div>";
+        '"></div></div><span class="num">' + esc(d.types[t]) + "</span></div>";
     }).join("") + "</div>" : '<div class="faint">' + esc(T("no_devices_online")) + "</div>";
 
     var evs = d.events.length ? '<div class="events-list">' + d.events.slice(0, 7).map(eventRow).join("") + "</div>" :
@@ -716,11 +716,13 @@
     }, function () { S.local = guessLocal(); });
   }
   function webAllowed() { return S.local !== false; }
-  function openWeb(url) { if (webAllowed()) window.open(url, "_blank", "noopener"); }
+  // The device's page opens in a tab of its own that gets neither a handle on DSM nor its address.
+  function openWeb(url) { if (webAllowed() && /^https?:\/\//.test(url)) window.open(url, "_blank", "noopener,noreferrer"); }
 
+  // Only a plain address becomes the host of a link.
   function webHost(d) {
-    if (d.ip) return d.ip;
-    var v6 = (d.ipv6 || []).filter(function (a) { return !/^fe[89ab]/i.test(a); })[0];
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(d.ip || "")) return d.ip;
+    var v6 = (d.ipv6 || []).filter(function (a) { return /^[0-9a-f:.]{2,45}$/i.test(a) && !/^fe[89ab]/i.test(a); })[0];
     return v6 ? "[" + v6 + "]" : "";
   }
   function webUrl(d) {
@@ -753,7 +755,7 @@
     var present = {};
     S.devices.forEach(function (d) { present[d.type] = (present[d.type] || 0) + 1; });
     var opts = '<option value="">' + esc(T("all_types")) + "</option>" + S.types.filter(function (t) { return present[t] || t === S.typeFilter; })
-      .map(function (t) { return '<option value="' + t + '">' + esc(typeName(t)) + " (" + (present[t] || 0) + ")</option>"; }).join("");
+      .map(function (t) { return '<option value="' + esc(t) + '">' + esc(typeName(t)) + " (" + (present[t] || 0) + ")</option>"; }).join("");
     $("#d-type").innerHTML = opts;
     $("#d-type").value = S.typeFilter;
   }
@@ -797,9 +799,13 @@
     fetch("api.cgi?action=export&format=csv", { credentials: "same-origin", headers: { "X-SYNO-TOKEN": synoToken() } })
       .then(function (r) {
         var type = r.headers.get("Content-Type") || "";
-        if (type.indexOf("text/csv") < 0) return r.json().then(function (j) { throw new ApiError(j.error && j.error.code, j.error && j.error.message, j.error); });
-        return r.blob();
-      })
+        if (type.indexOf("text/csv") >= 0) return r.blob();
+        return r.text().then(function (txt) {
+          var j;
+          try { j = JSON.parse(txt); } catch (e) { throw new ApiError("http", "HTTP " + r.status); }
+          throw new ApiError(j.error && j.error.code, j.error && j.error.message, j.error);
+        });
+      }, function () { throw new ApiError("network", "Network error"); })
       .then(function (blob) {
         var a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -817,7 +823,7 @@
   function openDevice(d) {
     if (!d) return;
     var typeOpts = '<option value="">' + esc(T("f_type_auto", typeName(d.type_auto || "unknown"))) + "</option>" +
-      S.types.map(function (t) { return '<option value="' + t + '"' + (d.type_user === t ? " selected" : "") + ">" + esc(typeName(t)) + "</option>"; }).join("");
+      S.types.map(function (t) { return '<option value="' + esc(t) + '"' + (d.type_user === t ? " selected" : "") + ">" + esc(typeName(t)) + "</option>"; }).join("");
     var detected = d;
     var general = '<div class="dev-head">' + devIcon(d.type, "lg") + '<div><h3>' + esc(d.display_name) + '</h3><div class="status ' + (d.online ? "on" : "off") + '"><span class="dot' + (d.online ? " on" : "") + '"></span>' +
       esc(d.online ? T("online") : T("offline") + " · " + rel(d.last_seen)) + '</div></div></div>' +
@@ -860,7 +866,7 @@
         var url = scheme && webHost(d) ? scheme + "://" + webHost(d) + ((p === 80 || p === 443) ? "" : ":" + p) + "/" : "";
         var link = !url ? "" : webAllowed() ? '<a href="#" data-web="' + esc(url) + '">' + esc(T("open_link")) + "</a>" :
           '<span class="faint" title="' + esc(T("web_local_only")) + '">' + esc(T("open_link")) + "</span>";
-        return '<tr><td class="mono">' + p + "/tcp</td><td>" + esc(portLabel(p)) + "</td><td>" + link + "</td></tr>";
+        return '<tr><td class="mono">' + esc(p) + "/tcp</td><td>" + esc(portLabel(p)) + "</td><td>" + link + "</td></tr>";
       }).join("") + "</tbody></table>" : '<div class="faint">' + esc(T("no_ports")) + "</div>";
     if (ports.length && webUrl(d) && !webAllowed()) services = '<div class="note">' + I.info + "<span>" + esc(T("web_local_only")) + "</span></div>" + services;
     if ((d.services || []).length) {
@@ -922,10 +928,10 @@
       idKey: "started", sort: { key: "finished", dir: -1 }, storeKey: "scans", emptyIcon: "scan", empty: function () { return T("never"); },
       columns: [
         { key: "finished", title: T("col_time"), width: "160px", render: function (r) { return esc(fmtTime(r.finished)); } },
-        { key: "trigger", title: T("col_trigger"), width: "140px", render: function (r) { return esc(T("trig_" + (r.trigger || "manual"))); } },
+        { key: "trigger", title: T("col_trigger"), width: "140px", render: function (r) { return r.trigger ? esc(T("trig_" + r.trigger)) : "–"; } },
         { key: "duration", title: T("col_duration"), width: "100px", render: function (r) { return esc(T("seconds", fmtNum(r.duration, 1, true))); } },
         { key: "found", title: T("col_found"), width: "100px" },
-        { key: "new", title: T("col_new"), width: "80px", render: function (r) { return r.new ? '<span class="badge new">' + r.new + "</span>" : "0"; } },
+        { key: "new", title: T("col_new"), width: "80px", render: function (r) { return r.new ? '<span class="badge new">' + esc(r.new) + "</span>" : "0"; } },
         { key: "offline", title: T("col_offline"), width: "90px" },
         { key: "targets", title: T("col_targets"), sortable: false, hideBelow: 820, render: function (r) { return '<span class="mono">' + esc((r.targets || []).join(", ")) + "</span>"; },
           title_attr: function (r) { return (r.targets || []).join(", "); } },
@@ -1087,7 +1093,7 @@
       CFG.config = r.config; renderSettings(); toast(T("saved")); poll();
     }, function (err) {
       if (err.code === "invalid_config") {
-        var map = { custom_targets: ["#s-custom", "targets"], ports: ["#s-ports", "ports"] };
+        var map = { custom_targets: ["#s-custom", "targets"], custom_targets_count: ["#s-custom", "targets"], ports: ["#s-ports", "ports"] };
         var hit = map[err.extra.field];
         if (hit) {
           $$("[data-stab]", root).forEach(function (x) { if (x.getAttribute("data-stab") === hit[1]) x.click(); });
@@ -1112,7 +1118,12 @@
       go(page);
       if (page !== "devices") loadDevices(true);
       pollTimer = setTimeout(poll, st.status === "scanning" ? 1500 : 10000);
-    }, handleError);
+    }, function (err) {
+      // nothing is on screen yet: a toast alone would leave an empty window without a way back
+      var code = err && err.code;
+      if (code === "auth" || code === "permission" || code === "daemon" || code === "daemon_perm") return handleError(err);
+      fatal(errorText(err));
+    });
   }
 
   // re-render relative times every minute

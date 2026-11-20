@@ -26,6 +26,7 @@ def _read_name(data, offset, depth=0):
     labels = []
     jumped = False
     end = offset
+    size = 0
     while True:
         if offset >= len(data) or depth > 20:
             raise ValueError("bad name")
@@ -42,6 +43,11 @@ def _read_name(data, offset, depth=0):
             if not jumped:
                 end = offset + 1
             break
+        # RFC 1035 limits: 63 bytes per label, 255 per name. Without them a name built from
+        # compression pointers could be made to expand to many times the size of its packet.
+        size += 1 + length
+        if length > 63 or size > 255:
+            raise ValueError("bad name")
         labels.append(data[offset + 1:offset + 1 + length].decode("utf-8", "replace"))
         offset += 1 + length
     return ".".join(labels), end

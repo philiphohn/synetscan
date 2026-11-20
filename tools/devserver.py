@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local preview: mock DSM desktop + the real api.cgi + the real daemon.
+"""Local preview: mock DSM desktop + the real API code (via tools/dev_cgi.py) + the real daemon.
 
     python3 tools/devserver.py [--port 8640] [--var DIR] [--no-daemon]
 
@@ -18,6 +18,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UI = os.path.join(ROOT, "src", "ui")
 PREFIX = "/webman/3rdparty/SynetScan/"
 MOCK = os.path.join(ROOT, "tools", "mock_dsm.html")
+DEV_CGI = os.path.join(ROOT, "tools", "dev_cgi.py")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -48,12 +49,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         env = dict(os.environ, REQUEST_METHOD=self.command, QUERY_STRING=u.query,
                    CONTENT_LENGTH=str(len(body)), CONTENT_TYPE=self.headers.get("Content-Type", ""),
-                   HTTP_X_SYNO_TOKEN=self.headers.get("X-SYNO-TOKEN", ""), SYNETSCAN_DEV="1",
+                   HTTP_X_SYNO_TOKEN=self.headers.get("X-SYNO-TOKEN", ""),
+                   HTTP_SEC_FETCH_SITE=self.headers.get("Sec-Fetch-Site", ""),
                    SYNETSCAN_VAR=self.var_dir, GATEWAY_INTERFACE="CGI/1.1",
                    # SYNETSCAN_DEV_CLIENT=8.8.8.8 previews a remote (QuickConnect/internet) session;
                    # without it the browser address is left out and the UI treats the preview as local
                    REMOTE_ADDR=os.environ.get("SYNETSCAN_DEV_CLIENT", ""))
-        r = subprocess.run([os.path.join(UI, "api.cgi")], input=body, capture_output=True, env=env, timeout=60)
+        r = subprocess.run([sys.executable, "-I", DEV_CGI], input=body, capture_output=True, env=env, timeout=60)
         head, _, payload = r.stdout.partition(b"\r\n\r\n")
         status = 200
         headers = []

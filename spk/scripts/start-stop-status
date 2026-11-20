@@ -11,6 +11,8 @@ is_running() {
 start_daemon() {
     is_running && return 0
     mkdir -p "$PKG_VAR"
+    umask 077  # the service's data, log and pid file are private to the package user
+    rm -f "$PKG_VAR/synetscan.sock"  # one left by a killed service would pass for a started one
     SYNOPKG_PKGVAR="$PKG_VAR" nohup "$PKG_TARGET/bin/synetscand" "$LOG_FILE" >> "$PKG_VAR/daemon.out" 2>&1 &
     echo $! > "$PID_FILE"
     i=0

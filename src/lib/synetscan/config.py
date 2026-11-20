@@ -1,6 +1,9 @@
 """Configuration defaults and validation."""
+import re
+
 from .classify import DEFAULT_PORTS
 from .targets import TargetError, parse_target
+from .util import clean_text
 
 DEFAULTS = {
     "auto_subnets": True,
@@ -25,6 +28,8 @@ DEFAULTS = {
 }
 
 INTERVALS = [5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]
+MAX_CUSTOM_TARGETS = 1024  # 1.1.2 had no limit; every scan stops at targets.MAX_TARGETS anyway
+_IFACE = re.compile(r"^[A-Za-z0-9_.:@-]{1,15}$")
 
 
 class ConfigError(ValueError):
@@ -33,7 +38,7 @@ class ConfigError(ValueError):
     def __init__(self, message, field="", value=""):
         super().__init__(message)
         self.field = field
-        self.value = str(value)
+        self.value = clean_text(value, 64)
 
 
 def merged(cfg):
@@ -52,7 +57,7 @@ def _bool(v):
 def _int(v, lo, hi, field):
     try:
         v = int(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ConfigError("%s: not a number" % field, field, v)
     if not lo <= v <= hi:
         raise ConfigError("%s: must be between %d and %d" % (field, lo, hi), field, v)
@@ -62,7 +67,9 @@ def _int(v, lo, hi, field):
 def validate(update, current):
     """Validate a partial update and return the new full configuration."""
     cfg = merged(current)
-    for key, value in (update or {}).items():
+    if not isinstance(update, dict):
+        return cfg
+    for key, value in update.items():
         if key not in DEFAULTS:
             continue
         if isinstance(DEFAULTS[key], bool):
@@ -80,7 +87,7 @@ def validate(update, current):
         elif key == "timeout":
             try:
                 v = float(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 raise ConfigError("timeout: not a number", "timeout", value)
             if not 0.1 <= v <= 5:
                 raise ConfigError("timeout: must be between 0.1 and 5 seconds", "timeout", value)
@@ -89,9 +96,11 @@ def validate(update, current):
             ports = value
             if isinstance(value, str):
                 ports = [p for p in value.replace(",", " ").split() if p]
+            if not isinstance(ports, list) or len(ports) > 4096:
+                raise ConfigError("ports: not a list of ports", "ports", "")
             out = set()
             for p in ports:
-                p = str(p)
+                p = str(p)[:32]
                 if "-" in p:
                     a, _, b = p.partition("-")
                     try:
@@ -113,11 +122,16 @@ def validate(update, current):
             items = value
             if isinstance(value, str):
                 items = value.replace(",", "\n").splitlines()
+            if not isinstance(items, list):
+                raise ConfigError("custom_targets: not a list", "custom_targets", "")
             clean = []
             for t in items:
-                t = str(t).strip()
+                t = str(t).strip()[:80]
                 if not t:
                     continue
+                if len(clean) >= MAX_CUSTOM_TARGETS:
+                    raise ConfigError("custom_targets: at most %d entries" % MAX_CUSTOM_TARGETS,
+                                      "custom_targets_count", MAX_CUSTOM_TARGETS)
                 try:
                     parse_target(t)
                 except TargetError as e:
@@ -125,5 +139,7 @@ def validate(update, current):
                 clean.append(t)
             cfg[key] = clean
         elif key == "excluded_interfaces":
-            cfg[key] = [str(x) for x in (value or []) if str(x).strip()]
+            # only ever compared with the names of the NAS's own interfaces
+            names = value if isinstance(value, list) else []
+            cfg[key] = [x for x in names if isinstance(x, str) and _IFACE.match(x)][:64]
     return cfg

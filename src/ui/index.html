@@ -2,15 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- This page runs inside the admin's DSM session and shows names that devices on the network
+     chose for themselves. The policy lets it load its own scripts and talk to its own API,
+     nothing else: no inline or foreign script, no connection to another host. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="same-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SynetScan</title>
 <link rel="icon" href="images/icon_32.png">
-<link rel="stylesheet" href="css/dsm.css?v=1.1.2">
+<link rel="stylesheet" href="css/dsm.css?v=1.1.5">
 </head>
 <body>
 <div id="app"><div class="fatal"><div class="spinner"></div></div></div>
-<script src="js/i18n.js?v=1.1.2"></script>
-<script src="js/icons.js?v=1.1.2"></script>
-<script src="js/app.js?v=1.1.2"></script>
+<script src="js/i18n.js?v=1.1.5"></script>
+<script src="js/icons.js?v=1.1.5"></script>
+<script src="js/app.js?v=1.1.5"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 """synetscand: background service owning all state; serves a JSON API on a unix socket."""
 import json
 import os
+import re
 import signal
 import socket
 import socketserver
@@ -11,10 +12,17 @@ from . import __version__, ipv6, netinfo, probes
 from . import config as config_mod
 from .classify import PORT_NAMES, TYPES
 from .scanner import ScanCancelled, Scanner
-from .store import Store
-from .util import log, now, raise_fd_limit
+from .store import MAX_DEVICES, Store
+from .util import clean_text, error_text, log, make_private, now, raise_fd_limit
 
 MAX_REQUEST = 1024 * 1024
+_ACTION = re.compile(r"^[a-z_]{1,32}$")
+
+
+def _ids(p):
+    """The device ids of a request as a list of strings, whatever was sent."""
+    ids = p.get("ids")
+    return [i for i in ids if isinstance(i, str)][:MAX_DEVICES] if isinstance(ids, list) else []
 
 
 class ApiError(Exception):
@@ -74,7 +82,7 @@ class Service:
             self.last_error = "cancelled"
         except Exception as e:  # noqa: BLE001
             log.exception("scan failed")
-            self.last_error = str(e)
+            self.last_error = error_text(e)
         finally:
             with self.state_lock:
                 self.state.update(status="idle", phase="", done=0, total=0)
@@ -83,31 +91,41 @@ class Service:
         cfg = self.store.config
         if not cfg.get("schedule_enabled"):
             return None
-        last = self.store.scans[-1]["finished"] if self.store.scans else self.started_at
+        scans = self.store.scans
+        last = scans[-1]["finished"] if scans else self.started_at
         # failed/cancelled scans count as well, so errors never cause a tight retry loop
         last = max(last, self.last_attempt)
-        return last + int(cfg.get("schedule_interval", 60)) * 60
+        try:
+            interval = max(1, int(cfg.get("schedule_interval", 60)))
+        except (TypeError, ValueError):
+            interval = 60
+        return last + interval * 60
 
     def scheduler(self):
         if self.store.config.get("scan_on_start", True):
             self.start_scan("startup")
         while not self.stop_event.wait(5):
-            nxt = self.next_scan_at()
-            if nxt is not None and now() >= nxt and not self.scanning():
-                self.start_scan("schedule")
+            try:
+                nxt = self.next_scan_at()
+                if nxt is not None and now() >= nxt and not self.scanning():
+                    self.start_scan("schedule")
+            except Exception:  # noqa: BLE001 - the schedule must outlive any single mistake
+                log.exception("scheduler")
 
     # --------------------------------------------------------------------- API
     def handle(self, req):
-        action = req.get("action", "")
-        fn = getattr(self, "api_" + action, None)
-        if not action.isidentifier() or fn is None:
-            raise ApiError("unknown_action", "Unknown action: %s" % action)
-        return fn(req.get("params") or {}, req.get("user", ""))
+        action = req.get("action") if isinstance(req, dict) else None
+        fn = getattr(self, "api_" + action, None) if isinstance(action, str) and _ACTION.match(action) else None
+        if fn is None:
+            raise ApiError("unknown_action", "Unknown action")
+        params = req.get("params")
+        return fn(params if isinstance(params, dict) else {}, clean_text(req.get("user"), 128))
 
     def api_status(self, p, user):
         with self.state_lock:
             st = dict(self.state)
-        last = self.store.scans[-1] if self.store.scans else None
+        scans = self.store.scans  # a reset swaps the list, it never empties this one
+        last = scans[-1] if scans else None
         lt = time.localtime()
         st.update(version=__version__, last_scan=last, next_scan=self.next_scan_at(),
                   last_error=self.last_error, now=now(), ping=probes.ping_available(),
@@ -155,22 +173,21 @@ class Service:
                 "types": TYPES}
 
     def api_device_update(self, p, user):
-        did = p.get("id")
         try:
-            dev = self.store.update_device(did, p)
+            dev = self.store.update_device(str(p.get("id")), p)
         except KeyError:
             raise ApiError("not_found", "Device not found")
         return {"id": dev["id"]}
 
     def api_device_known(self, p, user):
-        self.store.set_known(list(p.get("ids") or []), bool(p.get("known", True)))
+        self.store.set_known(_ids(p), bool(p.get("known", True)))
         return {}
 
     def api_device_delete(self, p, user):
-        return {"deleted": self.store.delete_devices(list(p.get("ids") or []))}
+        return {"deleted": self.store.delete_devices(_ids(p))}
 
     def api_wake(self, p, user):
-        dev = self.store.devices.get(p.get("id", ""))
+        dev = self.store.devices.get(str(p.get("id")))
         if not dev:
             raise ApiError("not_found", "Device not found")
         if not dev.get("mac"):
@@ -235,10 +252,12 @@ class Service:
 
 
 class _Handler(socketserver.StreamRequestHandler):
+    timeout = 30  # a client that connects and then says nothing does not keep a thread
+
     def handle(self):
         service = self.server.service
         try:
-            line = self.rfile.readline(MAX_REQUEST)
+            line = self.rfile.readline(MAX_REQUEST + 4096)
             req = json.loads(line.decode("utf-8"))
             data = service.handle(req)
             resp = {"success": True, "data": data}
@@ -248,8 +267,11 @@ class _Handler(socketserver.StreamRequestHandler):
             resp = {"success": False, "error": err}
         except Exception as e:  # noqa: BLE001
             log.exception("API error")
-            resp = {"success": False, "error": {"code": "internal", "message": str(e)}}
-        self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8") + b"\n")
+            resp = {"success": False, "error": {"code": "internal", "message": error_text(e)}}
+        try:
+            self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8") + b"\n")
+        except OSError:
+            pass  # the client has gone
 
 
 class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -261,6 +283,10 @@ def socket_path(var_dir):
 
 
 def run(var_dir):
+    # Device list, history, settings, log and the control socket are for the package user only.
+    os.umask(0o077)
+    make_private(*(os.path.join(var_dir, n) for n in
+                   ("devices.json", "events.json", "scans.json", "config.json", "daemon.out")))
     raise_fd_limit()
     service = Service(var_dir)
     path = socket_path(var_dir)
@@ -308,7 +334,9 @@ def request(var_dir, action, params=None, user="", timeout=30):
             os.chdir(var_dir)
             path = os.path.basename(path)
         s.connect(path)
-        s.sendall(json.dumps({"action": action, "params": params or {}, "user": user}).encode("utf-8") + b"\n")
+        # compact and unescaped: the line stays within what the service reads, like the body it came from
+        s.sendall(json.dumps({"action": action, "params": params or {}, "user": user},
+                             ensure_ascii=False, separators=(",", ":")).encode("utf-8", "replace") + b"\n")
         buf = b""
         while not buf.endswith(b"\n"):
             chunk = s.recv(65536)

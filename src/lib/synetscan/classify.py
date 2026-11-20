@@ -119,6 +119,8 @@ _LOCAL = re.compile(r"\.(local|lan|home|fritz\.box|localdomain|intranet|internal
 
 _RANDOM_ID = re.compile(r"^[A-Za-z0-9+/=_-]{10,}$")
 _HEX_ID = re.compile(r"^[0-9a-f]{8,}(-[0-9a-f]{4,})*$", re.I)
+# the host names Android makes up: "Android_K7QX2M4P" (mDNS), "android-0a1b2c3d4e5f6789" (DHCP)
+_ANDROID_ID = re.compile(r"^(Android_[A-Z0-9]{8}|android-[0-9a-f]{16})$")
 _GENERIC_UPNP = re.compile(r"^(upnp\b|igd\b|internet ?gateway ?device|wan ?(connection ?)?device|"
                            r"mediarenderer|mediaserver|basic ?device|unknown)", re.I)
 
@@ -130,7 +132,7 @@ def junk_name(name):
         return True
     if name.lower().startswith("nearby-presence"):
         return True
-    if _HEX_ID.match(name):
+    if _HEX_ID.match(name) or _ANDROID_ID.match(name):
         return True
     if _RANDOM_ID.match(name) and re.search(r"[a-z]", name) and re.search(r"[A-Z]", name) and re.search(r"\d", name):
         return True
