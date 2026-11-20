@@ -41,7 +41,7 @@ Details: [Scan Schedule and Performance](Schedule-and-Performance).
 
 | Setting | Key | Default | Allowed | Effect |
 | --- | --- | --- | --- | --- |
-| **Ports**<br>*Ports* | `ports` | `21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389, 5000, 5001, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100, 9197, 32400, 62078` | Ports 1–65535 separated by commas or spaces. Ranges `a-b` up to 1,024 ports. At most 2,048 different ports in total. | TCP ports checked on every device found. Used for the Services list, Open Web Interface and the device type. Doesn't affect discovery. |
+| **Ports**<br>*Ports* | `ports` | `21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389, 5000, 5001, 5060, 5061, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100, 9197, 32400, 62078` | Ports 1–65535 separated by commas or spaces. Ranges `a-b` up to 1,024 ports. At most 2,048 different ports in total. | TCP ports checked on every device found. Used for the Services list, Open Web Interface and the device type. Doesn't affect discovery. |
 | **Restore defaults**<br>*Standard wiederherstellen* | – | – | – | Puts the default list into the field. Click **Apply** to save it. |
 
 Configurations saved by SynetScan 1.0.0 with the 1.0.0 default list are moved to the current default list automatically (it added 7676, 8001, 8002 and 9197).
@@ -120,7 +120,7 @@ The settings are stored in `/var/packages/SynetScan/var/config.json`. Unknown ke
   "schedule_interval": 60,
   "scan_on_start": true,
   "ports": [21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389, 5000, 5001,
-            5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100, 9197, 32400, 62078],
+            5060, 5061, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100, 9197, 32400, 62078],
   "timeout": 0.6,
   "threads": 64,
   "use_ping": true,

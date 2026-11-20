@@ -109,7 +109,7 @@ class Store:
             if bogus_model(d.get("model"), d.get("vendor")):
                 d.pop("model", None)
         from .classify import DEFAULT_PORTS, OLD_DEFAULT_PORTS
-        if sorted(self.config.get("ports") or []) == OLD_DEFAULT_PORTS:
+        if sorted(self.config.get("ports") or []) in OLD_DEFAULT_PORTS:
             self.config["ports"] = list(DEFAULT_PORTS)
         # 1.0.0 did not flag the devices of the first scan; they were found by the earliest scan
         if self.devices and self.scans and not any("baseline" in d for d in self.devices.values()):

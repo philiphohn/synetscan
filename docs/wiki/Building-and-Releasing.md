@@ -3,7 +3,7 @@
 ## Building the package
 
 ```sh
-./build.sh                 # dist/SynetScan-<version>-<build>-noarch.spk, e.g. SynetScan-1.1.8-10108-noarch.spk
+./build.sh                 # dist/SynetScan-<version>-<build>-noarch.spk, e.g. SynetScan-1.1.9-10109-noarch.spk
 BUILD=<number> ./build.sh  # a build number of your own (never one a later version will use)
 ```
 

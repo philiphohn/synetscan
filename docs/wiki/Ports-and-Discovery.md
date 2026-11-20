@@ -25,7 +25,7 @@ Limits: each range may span up to 1,025 ports (for example `8000-9024`), and the
 
 ## The default ports explained
 
-The defaults (31 ports) cover what you typically find in homes and small offices. Each one either reveals a service you may want to open, or helps recognise the device type.
+The defaults (33 ports) cover what you typically find in homes and small offices. Each one either reveals a service you may want to open, or helps recognise the device type. If you never changed the list, an update brings new default ports along (1.1.9 added 5060 and 5061); a list you edited stays as it is.
 
 | Port | Name in SynetScan | Typically found on | Why it's in the list |
 | --- | --- | --- | --- |
@@ -46,6 +46,8 @@ The defaults (31 ports) cover what you typically find in homes and small offices
 | 3389 | RDP | Windows PCs and servers with Remote Desktop enabled | Means **Computer**. |
 | 5000 | DSM | Synology NAS (DSM over HTTP), some other web apps | Both 5000 and 5001 open means **NAS**. |
 | 5001 | DSM HTTPS | Synology NAS (DSM over HTTPS) | See 5000. |
+| 5060 | SIP | IP phone systems, desk phones, DECT bases, VoIP adapters | VoIP signalling. Means **Telephony** (unless the device is the router or the NAS). *Since 1.1.9.* |
+| 5061 | SIP TLS | Same as 5060 | Encrypted SIP. Means **Telephony**. *Since 1.1.9.* |
 | 5900 | VNC | Macs with Screen Sharing, Raspberry Pi, PCs with VNC | Remote screen access |
 | 7000 | AirPlay | Apple TV, HomePod, Macs, AirPlay speakers | AirPlay receivers |
 | 7676 | DLNA | Samsung TVs | Samsung TV service port. Means **TV & Media**. |
@@ -59,7 +61,7 @@ The defaults (31 ports) cover what you typically find in homes and small offices
 | 9100 | JetDirect | Network printers | Raw printing. Means **Printer**. |
 | 9197 | DIAL | Smart TVs (Samsung and others) | Second-screen protocol. Means **TV & Media**. |
 | 32400 | Plex | Plex Media Server | Opens with **Open Web Interface** |
-| 62078 | iOS sync | iPhones and iPads | Apple's device sync service. Means **Phone** (or **Tablet**, if the name says iPad). Also a discovery port. |
+| 62078 | iOS sync | iPhones and iPads | Apple's device sync service. Means **Smartphone** (or **Tablet**, if the name says iPad). Also a discovery port. |
 
 SynetScan also knows the names of these ports, which aren't in the defaults: 20 FTP data, 25 SMTP, 81 HTTP alt, 88 Kerberos, 110 POP3, 111 RPC, 135 MS RPC, 143 IMAP, 161 SNMP, 389 LDAP, 465 SMTPS, 587 SMTP sub, 873 rsync, 993 IMAPS, 995 POP3S, 1080 SOCKS, 1433 MSSQL, 1900 UPnP, 2049 NFS, 3000 HTTP dev, 3306 MySQL, 3689 DAAP, 5060 SIP, 5353 mDNS, 5432 PostgreSQL, 6379 Redis, 8000 HTTP alt, 8081 HTTP alt, 8883 MQTT TLS, 8888 HTTP alt, 9000 HTTP alt, 9443 HTTPS alt, 10000 Webmin, 49152 UPnP. Other ports are shown by number.
 
@@ -74,7 +76,8 @@ The classifier uses ports together with the vendor, names and announced services
 | 554 | Camera |
 | 1400 | Speaker |
 | 8009, or any of 7676, 8001, 8002, 9197 | TV & Media |
-| 62078 | Phone |
+| 62078 | Smartphone |
+| 5060 or 5061 | Telephony |
 | 1883 or 8123 | Smart home |
 | 3389, or 139/445 together with a NetBIOS name | Computer |
 | 22 together with 80, 443, 3306, 5432, 6379, 8080 or 25 | Server |

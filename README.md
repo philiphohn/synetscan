@@ -38,8 +38,8 @@ Open it from the DSM main menu like any other Synology app.
   IPv4 address at all. Phones and PCs with changing privacy addresses stay one device.
 - **Tells you what each device is.** It combines the MAC vendor (about 59,000 entries),
   host names (DNS, NetBIOS, Bonjour/mDNS), UPnP descriptions, open services and web page
-  titles to name devices and sort them into 14 types: router, NAS, computer, phone, TV,
-  printer, camera, smart home and more.
+  titles to name devices and sort them into 15 types: router, NAS, computer, smartphone,
+  TV, printer, camera, smart home, telephony and more.
 - **Flags new devices.** The first scan becomes your baseline; anything that joins later is
   marked **New** until you confirm it. The activity log also records devices going offline,
   coming back and changing their IP address.
@@ -125,8 +125,8 @@ aren't available. SynetScan works around this without privileges:
    - the HTTP title and Server header
    - vendor lookup from the MAC address (bundled Wireshark OUI database, about 59k entries)
 3. **Classification.** Heuristics turn the vendor, ports, services and names into
-   a device type: router, NAS, computer, server, phone, tablet, printer, camera,
-   TV/media, speaker, console, smart home, network device, virtual machine.
+   a device type: router, NAS, computer, server, smartphone, tablet, printer, camera,
+   TV/media, speaker, console, smart home, network device, virtual machine, telephony.
 
 4. **IPv6.** An IPv6 network (/64) has far too many addresses to try one by one, and
    ICMPv6 needs root. So SynetScan makes the devices answer instead, while the IPv4 devices

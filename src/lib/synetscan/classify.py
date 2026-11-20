@@ -2,7 +2,7 @@
 import re
 
 TYPES = ["router", "nas", "computer", "server", "phone", "tablet", "printer", "camera",
-         "media", "speaker", "console", "iot", "network", "virtual", "unknown"]
+         "media", "speaker", "console", "iot", "network", "virtual", "voip", "unknown"]
 
 PORT_NAMES = {
     20: "FTP data", 21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP",
@@ -11,7 +11,7 @@ PORT_NAMES = {
     515: "LPD", 548: "AFP", 554: "RTSP", 587: "SMTP sub", 631: "IPP", 873: "rsync",
     993: "IMAPS", 995: "POP3S", 1080: "SOCKS", 1400: "Sonos", 1433: "MSSQL", 1883: "MQTT",
     1900: "UPnP", 2049: "NFS", 3000: "HTTP dev", 3306: "MySQL", 3389: "RDP", 3689: "DAAP",
-    5000: "DSM", 5001: "DSM HTTPS", 5060: "SIP", 5353: "mDNS", 5432: "PostgreSQL",
+    5000: "DSM", 5001: "DSM HTTPS", 5060: "SIP", 5061: "SIP TLS", 5353: "mDNS", 5432: "PostgreSQL",
     5900: "VNC", 6379: "Redis", 7000: "AirPlay", 7676: "DLNA", 8000: "HTTP alt", 8001: "TV remote",
     8002: "TV remote TLS", 8008: "Cast",
     8009: "Cast", 8080: "HTTP proxy", 8081: "HTTP alt", 8123: "Home Assistant",
@@ -21,12 +21,23 @@ PORT_NAMES = {
 }
 
 DEFAULT_PORTS = [21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389,
-                 5000, 5001, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100,
-                 9197, 32400, 62078]
-# the defaults of 1.0.0, so stored configurations that never changed them get the new ones
-OLD_DEFAULT_PORTS = [21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389,
-                     5000, 5001, 5900, 7000, 8008, 8009, 8080, 8123, 8443, 9100, 32400, 62078]
+                 5000, 5001, 5060, 5061, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443,
+                 9100, 9197, 32400, 62078]
+# the defaults of earlier versions (1.0.0, and up to 1.1.8), so stored configurations that never
+# changed them get the new ones
+OLD_DEFAULT_PORTS = [
+    [21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389,
+     5000, 5001, 5900, 7000, 8008, 8009, 8080, 8123, 8443, 9100, 32400, 62078],
+    [21, 22, 23, 53, 80, 139, 443, 445, 515, 548, 554, 631, 1400, 1883, 3389,
+     5000, 5001, 5900, 7000, 7676, 8001, 8002, 8008, 8009, 8080, 8123, 8443, 9100,
+     9197, 32400, 62078],
+]
 TV_PORTS = {7676, 8001, 8002, 9197}
+# IP phone systems, desk phones, DECT bases and VoIP adapters (as the MAC registry names them)
+VOIP_VENDORS = ("mitel", "aastra", "snom", "yealink", "grandstream", "polycom", "avaya", "gigaset", "fanvil",
+                "unify", "auerswald", "agfeo", "innovaphone", "obihai", "audiocodes", "patton", "sangoma",
+                "digium", "escene")
+_VOIP_VENDOR = re.compile(r"\b(?:%s)" % "|".join(VOIP_VENDORS))  # at a word start: not "ARMITEL"
 
 
 def _has(text, *words):
@@ -57,6 +68,11 @@ def classify(dev, gateways=(), own_ips=()):
     if _has(vendor, "vmware", "qemu", "xensource", "parallels", "virtualbox", "proxmox") \
             or (dev.get("mac") or "").startswith("00:15:5d"):
         return "virtual"
+    if _VOIP_VENDOR.search(vendor) or vendor == "poly" or ports & {5060, 5061} \
+            or _has(names, "mivoice", "aastra", "snom", "yealink", "grandstream", "polycom", "gigaset", "fanvil",
+                    "auerswald", "agfeo", "innovaphone", "obihai", "freepbx", "asterisk", "3cx", "pbx", "voip",
+                    "sip phone", "sip-phone", "ip phone", "ip-phone"):
+        return "voip"
     if ports & {9100, 515} or _has(services, "_ipp", "_printer", "_pdl-datastream", "_scanner", "_uscan") \
             or "printer" in upnp_type or _has(names, "printer", "laserjet", "officejet", "deskjet", "envy", "pixma"):
         return "printer"

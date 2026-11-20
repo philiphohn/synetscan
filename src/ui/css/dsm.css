@@ -103,7 +103,7 @@ a:hover { text-decoration: underline; }
 .toolbar > * { flex-shrink: 0; }
 .toolbar .select { max-width: 170px; min-width: 124px; flex-shrink: 1; }
 .toolbar #d-filter { min-width: 148px; }  /* "Neu in 24 Std." needs about 95 px of text */
-.toolbar .search { flex: 0 1 200px; min-width: 110px; }
+.toolbar .search { flex: 0 1000 200px; min-width: 110px; }  /* gives up its room first, down to its minimum, so the type filter keeps its names */
 .toolbar .search .input { width: 100%; }
 .toolbar .tb-group { display: flex; gap: 8px; margin-left: auto; flex-shrink: 1; min-width: 0; }
 @media (max-width: 1080px) { .toolbar { flex-wrap: wrap; } .toolbar .spacer { flex-basis: 0; } }

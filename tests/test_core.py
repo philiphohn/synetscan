@@ -142,6 +142,28 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.t(), "unknown")
         self.assertEqual(self.t(http={"title": "FRITZ!Box 7590"}), "router")
 
+    def test_telephony(self):
+        """Phone systems, desk phones, DECT bases and VoIP adapters (1.1.9)."""
+        self.assertEqual(self.t(vendor="Mitel", ports=[80, 443]), "voip")
+        self.assertEqual(self.t(vendor="Xiamen Yealink Network Technology", ports=[80]), "voip")
+        self.assertEqual(self.t(vendor="snom technology"), "voip")
+        self.assertEqual(self.t(vendor="Poly"), "voip")
+        self.assertEqual(self.t(vendor="Litton/Poly-Scientific"), "unknown")  # not Poly the phone maker
+        self.assertEqual(self.t(vendor="ARMITEL"), "unknown")  # not Mitel
+        self.assertEqual(self.t(vendor="Netrake an AudioCodes Company"), "voip")
+        self.assertEqual(self.t(http={"title": "MiVoice Office 400"}, ports=[443]), "voip")
+        self.assertEqual(self.t(http={"title": "FreePBX Administration"}, ports=[22, 80]), "voip")
+        self.assertEqual(self.t(ports=[5060]), "voip")
+        self.assertEqual(self.t(ports=[22, 80, 5061]), "voip")
+        # routers and NAS with a SIP registrar stay what they are
+        self.assertEqual(self.t(ip="192.168.1.1", ports=[53, 80, 5060]), "router")
+        self.assertEqual(self.t(vendor="AVM GmbH", ports=[80, 443, 5060]), "router")
+        self.assertEqual(self.t(http={"title": "FRITZ!Box 7590"}, ports=[80, 5060]), "router")
+        self.assertEqual(self.t(ip="192.168.1.10", ports=[5000, 5060]), "nas")
+        self.assertIn("voip", classify.TYPES)
+        self.assertIn(5060, classify.DEFAULT_PORTS)
+        self.assertIn(5061, classify.DEFAULT_PORTS)
+
     def test_display_name(self):
         self.assertEqual(classify.display_name({"name": "Mine", "hostname": "x"}), "Mine")
         self.assertEqual(classify.display_name({"hostname": "pc.fritz.box"}), "pc")
@@ -249,11 +271,17 @@ class FeedbackRound1Tests(unittest.TestCase):
         # data written by 1.0.0: no baseline flags, old default ports
         del st.devices["00:11:32:00:00:01"]["baseline"]
         st.save_devices()
-        st.config["ports"] = list(classify.OLD_DEFAULT_PORTS)
+        st.config["ports"] = list(classify.OLD_DEFAULT_PORTS[0])
         st.save_config()
         st2 = Store(d)
         self.assertTrue(st2.devices["00:11:32:00:00:01"]["baseline"])
         self.assertEqual(st2.config["ports"], classify.DEFAULT_PORTS)
+        # the defaults up to 1.1.8 gain the SIP ports; a list of one's own stays as it is
+        for old, expected in ((list(reversed(classify.OLD_DEFAULT_PORTS[1])), classify.DEFAULT_PORTS),
+                              ([443, 22, 80], [443, 22, 80])):
+            st2.config["ports"] = list(old)
+            st2.save_config()
+            self.assertEqual(Store(d).config["ports"], expected)
 
 
 class ClientLocationTests(unittest.TestCase):

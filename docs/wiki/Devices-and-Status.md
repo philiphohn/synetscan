@@ -45,7 +45,7 @@ The **first scan** marks every device it finds as known. That's your baseline. E
 
 ## Device types
 
-SynetScan sorts devices into 14 types, plus **Unknown**:
+SynetScan sorts devices into 15 types, plus **Unknown**:
 
 | Type (English) | German | Typical devices |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ SynetScan sorts devices into 14 types, plus **Unknown**:
 | NAS | NAS | Synology, QNAP, Asustor, TerraMaster, the NAS itself |
 | Computer | Computer | Windows PCs, Macs, laptops |
 | Server | Server | Linux machines with SSH and services, Raspberry Pi with SSH |
-| Phone | Smartphone | iPhone, Android phones |
+| Smartphone | Smartphone | iPhone, Android phones (called *Phone* in English before 1.1.9) |
 | Tablet | Tablet | iPad, Galaxy Tab, Kindle |
 | Printer | Drucker | Network printers and scanners |
 | Camera | Kamera | IP cameras, NVRs, video doorbells |
@@ -63,6 +63,7 @@ SynetScan sorts devices into 14 types, plus **Unknown**:
 | Smart home | Smart Home | Hue, Shelly, ESP32/Tasmota, thermostats, Home Assistant |
 | Network device | Netzwerkgerät | Switches, access points, mesh nodes, powerline adapters |
 | Virtual machine | Virtuelle Maschine | VMware, QEMU/Proxmox, VirtualBox, Hyper-V guests |
+| Telephony | Telefonie | IP phone systems (such as Mitel MiVoice), desk phones (Yealink, Snom), DECT bases (Gigaset), VoIP adapters (*since 1.1.9*) |
 | Unknown | Unbekannt | Not enough information |
 
 The type is a **guess**, made from the MAC vendor, open ports, announced services and names. A device that shows nothing but its MAC address in a scan, such as a sleeping Mac, keeps the type it had the last time it showed itself (*since 1.1.8*). For example, port 9100 or an IPP service means *Printer*, port 62078 means an Apple mobile device, and a Sonos port means *Speaker*. Devices with a private MAC address reveal no vendor, so the guess has less to go on.

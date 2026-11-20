@@ -34,7 +34,7 @@ For the details, see [Requirements and Compatibility](Requirements-and-Compatibi
 ## What SynetScan does
 
 - **Finds everything on your LAN.** That includes devices that ignore ping and block every port, because SynetScan also reads the NAS's ARP table.
-- **Identifies devices.** It combines the MAC vendor, host names (DNS, NetBIOS, mDNS/Bonjour), UPnP descriptions, open services and web page titles, and sorts devices into 14 types.
+- **Identifies devices.** It combines the MAC vendor, host names (DNS, NetBIOS, mDNS/Bonjour), UPnP descriptions, open services and web page titles, and sorts devices into 15 types.
 - **Flags new devices.** The first scan becomes your baseline. Any device that joins later is marked **New** until you confirm it.
 - **Keeps a history.** The activity log records new devices, devices going offline or coming back, and IP address changes.
 - **Speaks IPv6.** It shows IPv6 addresses and finds devices that have no IPv4 address at all.

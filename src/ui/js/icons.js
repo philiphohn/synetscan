@@ -41,6 +41,7 @@
     t_iot: svg('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.4.4.6.9.6 1.4V16h6v-.8c0-.5.2-1 .6-1.4A6 6 0 0 0 12 3z"/>'),
     t_network: svg('<rect x="2.5" y="9" width="19" height="6.5" rx="1.5"/><path d="M6 12.3h.01M9 12.3h.01M12 12.3h.01M15 12.3h.01M18 12.3h.01"/><path d="M6.5 9V6M17.5 9V6"/>'),
     t_virtual: svg('<rect x="3" y="3" width="13" height="13" rx="1.5" stroke-dasharray="2.5 2"/><rect x="8" y="8" width="13" height="13" rx="1.5"/>'),
+    t_voip: svg('<path d="M3 9.5C3 7 7 5 12 5s9 2 9 4.5v.5a1 1 0 0 1-1 1h-2.5a1 1 0 0 1-1-1V8.6a11 11 0 0 0-9 0V10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><rect x="5" y="13" width="14" height="8" rx="1.5"/><path d="M9 15.8h.01M12 15.8h.01M15 15.8h.01M9 18.3h.01M12 18.3h.01M15 18.3h.01"/>'),
     t_unknown: svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6v.6M12 17v.2"/>'),
 
     ev_new: svg('<path d="M12 5v14M5 12h14"/>', 'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"'),
@@ -60,6 +61,6 @@
     server: ["#eceff3", "#56677a"], phone: ["#e5f6ec", "#279a56"], tablet: ["#e3f5f2", "#16958a"],
     printer: ["#f2ebfa", "#8a52c9"], camera: ["#fcebea", "#d9483b"], media: ["#fff0e0", "#df7810"],
     speaker: ["#fcedf5", "#c4407f"], console: ["#ececfb", "#5b5bd6"], iot: ["#fdf5d8", "#bd8c00"],
-    network: ["#e2f4fa", "#1290b3"], virtual: ["#eef1f4", "#66778a"], unknown: ["#eef1f4", "#98a4b0"],
+    network: ["#e2f4fa", "#1290b3"], virtual: ["#eef1f4", "#66778a"], voip: ["#eaf5e4", "#4e8a1f"], unknown: ["#eef1f4", "#98a4b0"],
   };
 })();

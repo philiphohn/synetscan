@@ -83,19 +83,20 @@ The device type comes from rules applied in a fixed order. The first rule that m
 1. **NAS**: the NAS itself; vendor Synology, QNAP, Asustor or TerraMaster; ports 5000 **and** 5001; names like *DiskStation*. Also Western Digital, Buffalo or Netgear devices with file sharing ports and "nas" in the name.
 2. **Router**: the default gateway; a UPnP *InternetGatewayDevice*; names like *FRITZ!Box*, *Speedport*, *router*; AVM devices with web or DNS ports.
 3. **Virtual machine**: vendor VMware, QEMU, Xen, Parallels, VirtualBox or Proxmox, or a Hyper-V MAC address.
-4. **Printer**: ports 9100 or 515; printer or scanner services (`_ipp`, `_printer`, `_uscan`…); names like *LaserJet*, *PIXMA*.
-5. **Camera**: port 554; camera vendors (Hikvision, Dahua, Axis, Reolink…); names like *camera*, *doorbell*, *NVR*.
-6. **Game console**: Nintendo, Sony Interactive; names like *PlayStation*, *Xbox*, *Steam Deck*.
-7. **Speaker**: port 1400; Sonos, Bose, Harman, Denon, Yamaha, Bang & Olufsen; Spotify Connect without AirPlay/Cast; names like *HomePod*, *Echo*, *soundbar*.
-8. **TV & Media**: Cast, AirPlay, Android TV or Roku services (but not Macs); port 8009 or the Samsung TV ports; UPnP *MediaRenderer*; TV vendors; names like *Chromecast*, *Apple TV*, *Fire TV*, *Bravia*.
-9. **Tablet**: names like *iPad*, *Galaxy Tab*, *Kindle*.
-10. **Phone**: port 62078; names like *iPhone*, *Android*, *Galaxy*, *Pixel*; phone vendors.
-11. **Smart home**: IoT chip and smart home vendors (Espressif, Tuya, Shelly, Signify, Nest, Ring, Sonoff, Bosch, Homematic…); ports 1883 or 8123; HomeKit, MQTT or Hue services; names like *Tasmota*, *ESP32*, *Home Assistant*.
-12. **Network device**: network vendors such as Ubiquiti, TP-Link, Netgear, Cisco, Zyxel, MikroTik, D-Link, Linksys, LANCOM, DrayTek and devolo; names like *switch*, *access point*, *repeater*, *mesh*, *Deco*.
-13. **Computer**: port 3389; Mac and PC names; workstation or companion-link services; SMB with a NetBIOS name.
-14. **Server**: SSH together with web, database or mail ports; names like *server*, *ubuntu*, *debian*, *proxmox*.
-15. Fallbacks: Raspberry Pi (Server with SSH, otherwise Smart home); Apple (Phone without open ports, otherwise Computer); Samsung (Phone with a private MAC or port 62078, otherwise TV & Media); PC vendors (Computer); private MAC without open ports (Phone); SSH (Server); IPv6 router announcements (Router; Thread border routers such as HomePods also send these, so this is the weakest signal).
-16. Otherwise **Unknown**.
+4. **Telephony** (*since 1.1.9*): telephony vendors (Mitel/Aastra, Snom, Yealink, Grandstream, Poly/Polycom, Avaya, Gigaset, Fanvil, Unify, Auerswald, Agfeo, innovaphone…); SIP ports 5060 or 5061; names and page titles like *MiVoice*, *FreePBX*, *Asterisk*, *3CX*, *PBX*, *VoIP*. Routers and the NAS are recognised before, so a FRITZ!Box with its built-in phone system stays a router.
+5. **Printer**: ports 9100 or 515; printer or scanner services (`_ipp`, `_printer`, `_uscan`…); names like *LaserJet*, *PIXMA*.
+6. **Camera**: port 554; camera vendors (Hikvision, Dahua, Axis, Reolink…); names like *camera*, *doorbell*, *NVR*.
+7. **Game console**: Nintendo, Sony Interactive; names like *PlayStation*, *Xbox*, *Steam Deck*.
+8. **Speaker**: port 1400; Sonos, Bose, Harman, Denon, Yamaha, Bang & Olufsen; Spotify Connect without AirPlay/Cast; names like *HomePod*, *Echo*, *soundbar*.
+9. **TV & Media**: Cast, AirPlay, Android TV or Roku services (but not Macs); port 8009 or the Samsung TV ports; UPnP *MediaRenderer*; TV vendors; names like *Chromecast*, *Apple TV*, *Fire TV*, *Bravia*.
+10. **Tablet**: names like *iPad*, *Galaxy Tab*, *Kindle*.
+11. **Smartphone**: port 62078; names like *iPhone*, *Android*, *Galaxy*, *Pixel*; phone vendors.
+12. **Smart home**: IoT chip and smart home vendors (Espressif, Tuya, Shelly, Signify, Nest, Ring, Sonoff, Bosch, Homematic…); ports 1883 or 8123; HomeKit, MQTT or Hue services; names like *Tasmota*, *ESP32*, *Home Assistant*.
+13. **Network device**: network vendors such as Ubiquiti, TP-Link, Netgear, Cisco, Zyxel, MikroTik, D-Link, Linksys, LANCOM, DrayTek and devolo; names like *switch*, *access point*, *repeater*, *mesh*, *Deco*.
+14. **Computer**: port 3389; Mac and PC names; workstation or companion-link services; SMB with a NetBIOS name.
+15. **Server**: SSH together with web, database or mail ports; names like *server*, *ubuntu*, *debian*, *proxmox*.
+16. Fallbacks: Raspberry Pi (Server with SSH, otherwise Smart home); Apple (Smartphone without open ports, otherwise Computer); Samsung (Smartphone with a private MAC or port 62078, otherwise TV & Media); PC vendors (Computer); private MAC without open ports (Smartphone); SSH (Server); IPv6 router announcements (Router; Thread border routers such as HomePods also send these, so this is the weakest signal).
+17. Otherwise **Unknown**.
 
 The rules are heuristics. Your own type in the device dialog always wins. If a rule regularly gets one of your devices wrong, please [report it](Reporting-Bugs) with the device's vendor, open ports, services and names.
 

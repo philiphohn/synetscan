@@ -108,10 +108,10 @@ window.SS_I18N = {
     s_offline_after_1: "1 missed scan",
     just_now: "Just now", min_ago: "{0} min ago", h_ago: "{0} h ago", d_ago: "{0} d ago", in_min: "in {0} min",
     in_h: "in {0} h", seconds: "{0} s",
-    type_router: "Router", type_nas: "NAS", type_computer: "Computer", type_server: "Server", type_phone: "Phone",
+    type_router: "Router", type_nas: "NAS", type_computer: "Computer", type_server: "Server", type_phone: "Smartphone",
     type_tablet: "Tablet", type_printer: "Printer", type_camera: "Camera", type_media: "TV & Media", type_speaker: "Speaker",
     type_console: "Game console", type_iot: "Smart home", type_network: "Network device", type_virtual: "Virtual machine",
-    type_unknown: "Unknown",
+    type_voip: "Telephony", type_unknown: "Unknown",
   },
   de: {
     nav_overview: "Übersicht", nav_devices: "Geräte", nav_activity: "Aktivität", nav_settings: "Einstellungen",
@@ -215,6 +215,6 @@ window.SS_I18N = {
     type_router: "Router", type_nas: "NAS", type_computer: "Computer", type_server: "Server", type_phone: "Smartphone",
     type_tablet: "Tablet", type_printer: "Drucker", type_camera: "Kamera", type_media: "TV & Medien", type_speaker: "Lautsprecher",
     type_console: "Spielkonsole", type_iot: "Smart Home", type_network: "Netzwerkgerät", type_virtual: "Virtuelle Maschine",
-    type_unknown: "Unbekannt",
+    type_voip: "Telefonie", type_unknown: "Unbekannt",
   },
 };

@@ -58,7 +58,7 @@ Below the title you see when the last scan ran and when the next one is due, or 
 | **IP address** | IPv4 address, or the first IPv6 address for IPv6-only devices. Hover to see all addresses. |
 | **MAC address** | Hardware address, or *–* if unknown |
 | **Vendor** | Manufacturer from the MAC address. *Private address* for randomised MAC addresses. |
-| **Type** | Router, NAS, Computer, Phone, TV & Media… |
+| **Type** | Router, NAS, Computer, Smartphone, TV & Media, Telephony… |
 | **Services** | The first two open ports by name, then *+N*. Hover to see all of them. |
 | **Last seen** | When the device last answered a scan |
 

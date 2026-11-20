@@ -5,7 +5,7 @@
 ## Symptom
 
 - A device has a cryptic name (`esp32-c3f1a0`, a vendor name, an IP address), a name that's out of date, or the name of another device.
-- The type icon and the **Type** column are wrong, for example a laptop shown as *Phone*, or a TV as *Unknown*.
+- The type icon and the **Type** column are wrong, for example a laptop shown as *Smartphone*, or a TV as *Unknown*.
 
 ## Likely explanation
 
