@@ -7,21 +7,21 @@
  */
 (function () {
   var BASE = "/webman/3rdparty/SynetScan/";
-  var VERSION = "1.1.5";
+  var VERSION = "1.1.8";
 
   function session(key) {
     try { return _S(key) || ""; } catch (e) { return ""; }
   }
 
-  Ext.define("SYNO.SDS.SynetScan.Instance", {
+  Ext.define("SYNO.SDS.App.SynetScan.Instance", {
     extend: "SYNO.SDS.AppInstance",
-    appWindowName: "SYNO.SDS.SynetScan.MainWindow",
+    appWindowName: "SYNO.SDS.App.SynetScan.MainWindow",
     constructor: function () {
       this.callParent(arguments);
     }
   });
 
-  Ext.define("SYNO.SDS.SynetScan.MainWindow", {
+  Ext.define("SYNO.SDS.App.SynetScan.MainWindow", {
     extend: "SYNO.SDS.AppWindow",
     constructor: function (cfg) {
       var self = this;
@@ -76,4 +76,8 @@
       });
     }
   });
+
+  // The names up to 1.1.6: a DSM page left open during the update still launches the app by them.
+  Ext.define("SYNO.SDS.SynetScan.Instance", { extend: "SYNO.SDS.App.SynetScan.Instance" });
+  Ext.define("SYNO.SDS.SynetScan.MainWindow", { extend: "SYNO.SDS.App.SynetScan.MainWindow" });
 })();

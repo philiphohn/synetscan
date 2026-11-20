@@ -3,7 +3,8 @@
 
     python3 tools/devserver.py [--port 8640] [--var DIR] [--no-daemon]
 
-Open http://127.0.0.1:8640/ (add ?lang=de for German).
+Open http://localhost:8640/ (add ?lang=de for German). Under 127.0.0.1 the app counts as opened
+from outside and greys out web links.
 """
 import argparse
 import http.server
@@ -101,7 +102,7 @@ def main():
                                  os.path.join(Handler.var_dir, "synetscan.log")], env=env)
         time.sleep(0.5)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print("SynetScan dev server: http://127.0.0.1:%d/  (data: %s)" % (args.port, Handler.var_dir))
+    print("SynetScan dev server: http://localhost:%d/  (data: %s)" % (args.port, Handler.var_dir))
 
     def stop(*_):
         if proc:

@@ -45,6 +45,7 @@ What happens during the update:
 | **The window is blank, half-drawn, or shows the old version.** | Reload DSM (F5). If that doesn't help, clear the browser cache for the DSM address, or try a private window. See [SynetScan does not open correctly after an update](Problems-After-Update). |
 | **"This function is not supported by the installed SynetScan service."** | The page is newer than the running service. Restart the package (Package Center → **Stop**, then **Run**), then reload DSM. |
 | **"The SynetScan service is not running."** | Start the package in Package Center. If it doesn't start, see [Logs and Diagnostics](Logs-and-Diagnostics). |
+| **The desktop shortcut to SynetScan is gone** after updating from 1.1.5 or older. | SynetScan's app name in DSM changed in 1.1.8, so DSM drops the old shortcut. Add it again from the main menu. |
 | **Manual Install does nothing.** | Try again; over QuickConnect, a first attempt sometimes didn't react in testing. |
 
 ### Going back to an older version
@@ -54,19 +55,25 @@ Downgrades haven't been tested. Package Center may refuse to install an older ve
 ## Uninstalling SynetScan
 
 1. Open **Package Center → Installed → SynetScan**.
-2. Open the menu next to **Open** (or the action menu, depending on the DSM version) and choose **Uninstall**. Confirm.
+2. Open the menu next to **Open** (or the action menu, depending on the DSM version) and choose **Uninstall**.
+3. The step **Uninstall SynetScan** (*SynetScan deinstallieren*) asks what happens to your data. Leave **Delete all SynetScan data** (*Alle SynetScan-Daten löschen*) unticked to keep it, or tick it to delete it. Continue and confirm.
 
-<!-- SCREENSHOT TODO: Package Center → SynetScan → Uninstall -->
+<!-- SCREENSHOT TODO: Package Center → SynetScan → Uninstall → Uninstall SynetScan -->
 
-The service stops and the package is removed. SynetScan's own uninstall scripts don't delete or keep anything themselves.
+The service stops and the package is removed.
 
-**Your data:** on DSM 7, the package's data folder (`/var/packages/SynetScan/var`) is normally removed together with the package **(to verify on your DSM version)**. If you might want your device list again, export it as CSV or [back up the data folder](Data-Storage-and-Backup#backup) before uninstalling.
+**Your data** (*since 1.1.8*):
+
+- **Unticked** (the default): the device list, your names and notes, the activity log, the scan history, the settings and the log stay in the package's data folder (`/var/packages/SynetScan/var`); DSM doesn't remove it (tested on DSM 7.1.1 and 7.4.1). If you install SynetScan again, it continues with this data.
+- **Ticked**: SynetScan deletes everything in its data folder, and only there. The empty folder itself stays, because DSM owns the folder it is in. If it can't find the folder, Package Center shows *SynetScan's data was not deleted* with the reason. A new installation starts empty, and its first scan records a new baseline. An update never deletes anything, whatever was ticked before.
+
+If you might want your device list again, export it as CSV or [back up the data folder](Data-Storage-and-Backup#backup) before deleting it.
 
 Nothing else is left behind: SynetScan creates no shared folders, scheduled tasks, firewall rules or user accounts of its own, apart from the package user DSM manages. If you created a boot-up task for [ICMP ping](Enabling-ICMP-Ping), delete it in **Control Panel → Task Scheduler**.
 
 ## Stopping and starting
 
-**Package Center → SynetScan → Stop** stops the service. No scans run, and the app shows *The SynetScan service is not running.* **Run** starts it again, and with **Scan when the service starts** on, a scan runs right away. Stopping waits up to 15 seconds for a running scan to end.
+**Package Center → SynetScan → Stop** stops the service. No scans run, and DSM closes the SynetScan window and hides SynetScan in the main menu until the package runs again (Package Center shows it as stopped, in German *Manuell beendet*). **Run** starts it again, and with **Scan when the service starts** on, a scan runs right away (on a fresh installation without data, only once the app has been opened). Stopping waits up to 15 seconds for a running scan to end.
 
 ## Related articles
 

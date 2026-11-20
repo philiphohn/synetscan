@@ -2,7 +2,7 @@
 
 ## 1. What you will achieve
 
-SynetScan is installed on your Synology NAS, its background service is running, and the app is in the DSM main menu. A first scan starts automatically when the service starts.
+SynetScan is installed on your Synology NAS, its background service is running, and the app is in the DSM main menu. The first scan starts when you open SynetScan for the first time. Installing the package causes no network activity of its own.
 
 ## 2. Prerequisites
 
@@ -15,7 +15,7 @@ SynetScan is installed on your Synology NAS, its background service is running, 
 ### Step 1: Download the package
 
 1. Open the [latest release](https://github.com/philiphohn/synetscan/releases/latest) on GitHub.
-2. Under **Assets**, download `SynetScan-<version>-noarch.spk`, for example `SynetScan-1.1.5-0001-noarch.spk`.
+2. Under **Assets**, download `SynetScan-<version>-noarch.spk`, for example `SynetScan-1.1.8-10108-noarch.spk`.
 
 There is only one file for all models: `noarch` means it runs on every CPU. Don't unpack it. DSM installs the `.spk` file as it is.
 
@@ -67,7 +67,7 @@ If the app doesn't appear in the main menu yet, reload the DSM page in your brow
 
 - Package Center lists **SynetScan** as **Running**.
 - The DSM main menu has a **SynetScan** entry. Only administrators see it.
-- In SynetScan, the Overview shows **Scanning your network** for about 10 to 20 seconds, then the devices it found. When the service starts, it runs the first scan on its own. You can also start one with **Scan Now**. Continue with [Your First Scan](First-Scan).
+- When you open SynetScan for the first time, the Overview shows **Scanning your network** for about 10 to 20 seconds, then the devices it found. Opening the app starts this first scan. You can also start one with **Scan Now**. Continue with [Your First Scan](First-Scan).
 
 ## 5. Common problems
 

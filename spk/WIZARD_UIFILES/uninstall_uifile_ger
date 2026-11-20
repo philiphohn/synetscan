@@ -1,0 +1,12 @@
+[{
+    "step_title": "SynetScan deinstallieren",
+    "items": [{
+        "type": "multiselect",
+        "desc": "SynetScan behält die Geräteliste, Ihre Namen und Notizen, das Aktivitätsprotokoll, den Scan-Verlauf und die Einstellungen, damit eine neue Installation damit weitermacht. Setzen Sie das Häkchen, um auch diese Daten zu löschen.",
+        "subitems": [{
+            "key": "wizard_delete_data",
+            "desc": "Alle SynetScan-Daten löschen",
+            "defaultValue": false
+        }]
+    }]
+}]

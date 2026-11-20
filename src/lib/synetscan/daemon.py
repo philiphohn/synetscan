@@ -17,6 +17,7 @@ from .util import clean_text, error_text, log, make_private, now, raise_fd_limit
 
 MAX_REQUEST = 1024 * 1024
 _ACTION = re.compile(r"^[a-z_]{1,32}$")
+_DATA_FILES = ("devices.json", "events.json", "scans.json", "config.json")
 
 
 def _ids(p):
@@ -48,6 +49,10 @@ class Service:
         self.stop_event = threading.Event()
         self.last_error = ""
         self.last_attempt = 0
+        # A fresh installation scans nothing until the app has been opened once: installing the
+        # package causes no network activity of its own. Any data file, even an emptied or damaged
+        # one, means it was installed and used before (Delete All Data keeps the schedule running).
+        self.awaiting_open = not any(os.path.exists(os.path.join(var_dir, n)) for n in _DATA_FILES)
 
     # ---------------------------------------------------------------- scanning
     def scanning(self):
@@ -57,6 +62,7 @@ class Service:
         with self.state_lock:
             if self.scanning():
                 return False
+            self.awaiting_open = False
             self.cancel.clear()
             self.last_attempt = now()
             self.state.update(status="scanning", phase="prepare", done=0, total=0, found=0,
@@ -102,12 +108,14 @@ class Service:
         return last + interval * 60
 
     def scheduler(self):
-        if self.store.config.get("scan_on_start", True):
+        if self.awaiting_open:
+            log.info("no scan yet: the first scan starts when SynetScan is opened")
+        elif self.store.config.get("scan_on_start", True):
             self.start_scan("startup")
         while not self.stop_event.wait(5):
             try:
                 nxt = self.next_scan_at()
-                if nxt is not None and now() >= nxt and not self.scanning():
+                if nxt is not None and now() >= nxt and not self.scanning() and not self.awaiting_open:
                     self.start_scan("schedule")
             except Exception:  # noqa: BLE001 - the schedule must outlive any single mistake
                 log.exception("scheduler")
@@ -128,9 +136,21 @@ class Service:
         last = scans[-1] if scans else None
         lt = time.localtime()
         st.update(version=__version__, last_scan=last, next_scan=self.next_scan_at(),
+                  awaiting_open=self.awaiting_open,
                   last_error=self.last_error, now=now(), ping=probes.ping_available(),
                   tz_offset=lt.tm_gmtoff, tz_name=lt.tm_zone)
         return st
+
+    def api_opened(self, p, user):
+        """The app was opened while the service waits for that: start the first scan."""
+        if self.awaiting_open:
+            if self.store.config.get("scan_on_start", True):
+                if self.start_scan("open"):
+                    log.info("first scan started: SynetScan was opened by %s", user or "?")
+            else:
+                self.started_at = now()  # the schedule counts from the opening, not from a boot long ago
+            self.awaiting_open = False
+        return self.api_status(p, user)
 
     def api_overview(self, p, user):
         devices = self.store.list_devices()
@@ -150,7 +170,6 @@ class Service:
         for d in devices:
             if d.get("online"):
                 types[d["type"]] = types.get(d["type"], 0) + 1
-        day = now() - 86400
         return {
             "status": self.api_status(p, user),
             "hostname": netinfo.hostname(),
@@ -160,7 +179,7 @@ class Service:
                 "total": len(devices),
                 "online": sum(1 for d in devices if d.get("online")),
                 "offline": sum(1 for d in devices if not d.get("online")),
-                "new24h": sum(1 for d in devices if d.get("first_seen", 0) >= day and not d.get("baseline")),
+                "new24h": sum(1 for d in devices if d.get("new24h")),
                 "unknown": sum(1 for d in devices if not d.get("known")),
             },
             "types": types,
@@ -184,7 +203,9 @@ class Service:
         return {}
 
     def api_device_delete(self, p, user):
-        return {"deleted": self.store.delete_devices(_ids(p))}
+        n = self.store.delete_devices(_ids(p))
+        log.info("%d device(s) deleted by %s", n, user or "?")
+        return {"deleted": n}
 
     def api_wake(self, p, user):
         dev = self.store.devices.get(str(p.get("id")))
@@ -239,12 +260,15 @@ class Service:
         return {"config": cfg}
 
     def api_clear_offline(self, p, user):
-        return {"deleted": self.store.clear_offline()}
+        n = self.store.clear_offline()
+        log.info("%d offline device(s) removed by %s", n, user or "?")
+        return {"deleted": n}
 
     def api_reset(self, p, user):
         if self.scanning():
             raise ApiError("busy", "A scan is running")
         self.store.reset()
+        log.info("all data deleted by %s", user or "?")
         return {}
 
     def api_export(self, p, user):

@@ -1,0 +1,12 @@
+[{
+    "step_title": "Uninstall SynetScan",
+    "items": [{
+        "type": "multiselect",
+        "desc": "SynetScan keeps its device list, your names and notes, the activity log, the scan history and the settings, so that a new installation continues with them. Tick the box to delete them as well.",
+        "subitems": [{
+            "key": "wizard_delete_data",
+            "desc": "Delete all SynetScan data",
+            "defaultValue": false
+        }]
+    }]
+}]

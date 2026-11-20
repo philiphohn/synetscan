@@ -5,7 +5,7 @@ import os
 import threading
 
 from . import config as config_mod
-from .classify import TYPES, bogus_model, display_name
+from .classify import TYPES, bogus_model, classify, display_name
 from .util import clean_text, log, now, read_json, write_json
 
 MAX_EVENTS = 1000
@@ -23,6 +23,31 @@ COPY_FIELDS = ("ip", "mac", "vendor", "hostname", "netbios", "workgroup", "mdns_
 def primary_address(dev):
     """The address to show and to open: IPv4, else the first (most global) IPv6 address."""
     return dev.get("ip") or (dev.get("ipv6") or [""])[0]
+
+
+# what a device tells about itself besides its ports (its DNS name comes from the router, which
+# knows it while the device sleeps)
+_SHOWN = ("mdns_name", "netbios", "friendly", "model", "upnp", "http", "services", "instances", "ssdp_server")
+_SILENT_VIA = {"arp", "tcp", "icmp", "ndp"}
+
+
+def _type(dev, host):
+    """The type of the device: the scan's, as always. Only a device that showed nothing but its
+    MAC address (no open ports, no names, no Bonjour or UPnP answer) gets the type its own scans
+    gave it the last time it did show itself: a sleeping Mac would otherwise pass for a phone."""
+    scanned = host["type"] if host.get("type") in TYPES else "unknown"
+    # one MAC for several devices (proxy ARP, Wi-Fi extenders) and the gateway always follow the scan
+    silent = bool(host.get("mac")) and not host.get("ports") and not any(host.get(k) for k in _SHOWN) \
+        and set(host.get("via") or ()) <= _SILENT_VIA \
+        and not (host.get("gateway") or host.get("self") or host.get("proxy_arp") or host.get("proxy_arp_for"))
+    if silent and host.get("hostname") and classify(dict(host, hostname="")) != classify(host):
+        silent = False  # the DNS name the router knows tells the type ("galaxy-s21"): the scan decides
+    if not silent:
+        if host.get("mac"):
+            dev["type_shown"] = scanned  # learned from this MAC address itself, never from older data
+        return scanned
+    shown = dev.get("type_shown")
+    return shown if shown in TYPES and shown != "unknown" else scanned
 
 
 def device_id(host):
@@ -130,6 +155,7 @@ class Store:
                 if host.get("mac") and did not in self.devices and ("ip:" + host["ip"]) in self.devices:
                     old = self.devices.pop("ip:" + host["ip"])
                     old["id"] = did
+                    old.pop("type_shown", None)  # what the address showed before is not this device's
                     self.devices[did] = old
                 if host.get("self"):
                     # 1.1.0 listed a NAS with several ports once per port: keep one entry
@@ -163,7 +189,7 @@ class Store:
                         if not host.get(k):
                             dev.pop(k, None)
                     dev["ip_history"] = [a for a in dev.get("ip_history", []) if a not in host["proxy_arp_for"]]
-                dev["type_auto"] = host["type"] if host.get("type") in TYPES else "unknown"
+                dev["type_auto"] = _type(dev, host)
                 dev["last_seen"] = ts
                 dev["online"] = True
                 dev["missed"] = 0
@@ -173,9 +199,9 @@ class Store:
                     self._event("ip_changed", dev, "%s → %s" % (old_ip, host["ip"]), ts)
                     changed += 1
                 if is_new:
-                    if not first_scan:
+                    if not first_scan:  # the first scan's devices are the known baseline, not new
                         self._event("new", dev, dev.get("vendor", ""), ts)
-                    new += 1
+                        new += 1
                 elif not was_online:
                     self._event("online", dev, "", ts)
                     back += 1
@@ -244,8 +270,12 @@ class Store:
     def list_devices(self):
         with self.lock:
             out = []
+            day = now() - 86400
             for dev in self.devices.values():
                 d = dict(dev)
+                # first seen in the last 24 hours, and not part of the first scan
+                first = dev.get("first_seen")
+                d["new24h"] = isinstance(first, (int, float)) and first >= day and not dev.get("baseline")
                 d["type"] = dev.get("type_user") or dev.get("type_auto") or "unknown"
                 d["display_name"] = display_name(dev)
                 d["address"] = primary_address(dev)

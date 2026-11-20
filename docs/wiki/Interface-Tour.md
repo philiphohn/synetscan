@@ -7,7 +7,7 @@ The app follows your DSM language: German if DSM is set to German, English other
 ## Navigation and status area
 
 - **Devices** carries an orange badge with the number of **unconfirmed** devices: those you haven't marked as known yet.
-- The **status area** in the bottom left shows **Idle** and the time of the **Last scan**. While a scan runs, it shows the phase, a progress bar and how many devices have been found so far.
+- The **status area** in the bottom left shows **Idle** and the time of the **Last scan**. While a scan runs, it shows the phase, a progress bar and how many devices have been found so far. Below that is the installed SynetScan version (*since 1.1.8*).
 - The app checks the service's status every 10 seconds, and every 1.5 seconds while a scan runs. Relative times such as "10 min ago" refresh every minute.
 - SynetScan remembers the last page you opened and the sort order of each table, in your browser.
 
@@ -32,7 +32,7 @@ Below the title you see when the last scan ran and when the next one is due, or 
 | --- | --- | --- |
 | **Online** | Devices online now, out of all devices | Devices filtered to *Online* |
 | **All devices** | Every device in the list | All devices |
-| **New in 24 h** | Devices first seen in the last 24 hours that weren't part of the first scan | Devices filtered to *Unconfirmed* |
+| **New in 24 h** | Devices first seen in the last 24 hours that weren't part of the first scan | Devices filtered to *New in 24 h* (*since 1.1.8*; earlier versions opened *Unconfirmed*) |
 | **Unconfirmed** | Devices not marked as known | Devices filtered to *Unconfirmed* |
 
 **Recent activity** shows the latest events. **View all** opens the [Activity](Activity-and-Scan-History) page.
@@ -47,7 +47,7 @@ Below the title you see when the last scan ran and when the next one is due, or 
 
 **Toolbar.** **Scan Now**, **Edit** (one device selected), **Delete** (one or more selected) and **Action** (a menu with the device actions and **Export**).
 
-**Filters.** The first list filters by status: *All devices*, *Online*, *Offline*, *Unconfirmed*. The second filters by type. It only lists types that exist in your network and shows how many devices each has. **Search** looks through names, IPv4 and IPv6 addresses, other IP addresses of the NAS, MAC addresses (with or without colons), vendor, host names, model, notes and type.
+**Filters.** The first list filters by status: *All devices*, *Online*, *Offline*, *Unconfirmed*, *New in 24 h* (*since 1.1.8*). The second filters by type. It only lists types that exist in your network and shows how many devices each has. **Search** looks through names, IPv4 and IPv6 addresses, other IP addresses of the NAS, MAC addresses (with or without colons), vendor, host names, model, notes and type.
 
 **Columns.** Click a column header to sort, and click again to reverse. If the window is narrow, SynetScan hides the less important columns first (MAC address, Last seen, Vendor, Services, Type).
 

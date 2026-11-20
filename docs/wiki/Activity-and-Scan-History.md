@@ -41,10 +41,10 @@ SynetScan keeps the **1,000 newest events**. When a new event is recorded, the o
 | Column | Meaning |
 | --- | --- |
 | **Time** | When the scan finished |
-| **Triggered by** | **Manual** (Scan Now), **Schedule** (automatic scan) or **Service start** (the scan when the package starts). *–* for scans recorded by version 1.1.1 or older, which didn't store the trigger. |
+| **Triggered by** | **Manual** (Scan Now), **Schedule** (automatic scan), **Service start** (the scan when the package starts) or **App opened** (*App geöffnet*: the first scan of a fresh installation, started when SynetScan was opened for the first time, *since 1.1.8*). *–* for scans recorded by version 1.1.1 or older, which didn't store the trigger. |
 | **Duration** | How long the scan took, in seconds |
 | **Found** | Devices found in this scan |
-| **New** | Devices that weren't in the list before. For the very first scan, this is every device found. |
+| **New** | Devices that weren't in the list before. The very first scan shows 0: its devices are the starting point (*since 1.1.8*; earlier versions counted every device found). |
 | **Offline** | Devices that went offline with this scan |
 | **Ranges** | The networks and ranges the scan covered, e.g. `192.168.1.0/24 (eth0)` |
 

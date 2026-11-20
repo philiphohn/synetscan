@@ -17,10 +17,10 @@ You run a first scan, see every device on your network, and understand the **bas
 
 Open SynetScan from the DSM main menu. The **Overview** page opens.
 
-When the package service starts, it runs a scan on its own. Depending on how quickly you opened the app, you see one of these:
+Opening SynetScan for the first time starts the first scan. Installing the package doesn't: until the app has been opened, SynetScan scans nothing, not even on its schedule (*since 1.1.8*; earlier versions scanned as soon as the service started). You see one of these:
 
-- **Scanning your network**: the first scan is running. Wait for it to finish (Step 3).
-- **No scan has been performed yet**: no scan has run yet. Continue with Step 2.
+- **Scanning your network**: the first scan is running. Wait for it to finish (Step 3). The scan history lists it as **App opened** (*App geöffnet*).
+- **No scan has been performed yet**: **Scan when the service starts** is off, so opening the app only started the schedule. Continue with Step 2.
 - A device list or **Your network looks fine**: the first scan has already finished.
 
 ### Step 2: Start a scan
@@ -44,7 +44,7 @@ A /24 network (254 addresses) usually takes about 8 to 15 seconds. To stop a run
 
 ### Step 4: Look at the result
 
-When the scan has finished, a message such as *Scan finished: 24 devices found, 24 new.* appears and the Overview updates. For the first scan, every device counts as "new" in this message and in the **New** column of the scan history, because the device list was empty before. The devices themselves are still recorded as known:
+When the scan has finished, a message such as *Scan finished: 24 devices found, 0 new.* appears and the Overview updates. The devices of the first scan are your starting point, so none of them counts as new, in this message or in the **New** column of the scan history (*since 1.1.8*; earlier versions counted every device of the first scan as new). They are all recorded as known:
 
 - The banner says **Your network looks fine**: all devices are online and known.
 - **Online**, **All devices**, **New in 24 h** and **Unconfirmed** show the counts.

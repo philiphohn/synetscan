@@ -94,6 +94,7 @@ Each line has a timestamp, a level (`INFO`, `WARNING`, `ERROR`) and a message, a
 | `scan cancelled` | Someone clicked **Stop**, or the service stopped. |
 | `scan failed` + traceback | An error. Please [report it](Reporting-Bugs) with these lines. |
 | `manual scan requested by alice` / `configuration changed by alice` / `WOL sent to … by alice` | Actions by a DSM user |
+| `2 device(s) deleted by alice` / `3 offline device(s) removed by alice` / `all data deleted by alice` | Devices or data deleted by a DSM user (*since 1.1.8*) |
 | `mDNS browse failed: …`, `SSDP discovery failed: …`, `IPv6 discovery failed: …` | One method failed. The rest of the scan continues. |
 | `device list is full: removed N records (limit 8192)` | The device limit was reached. |
 | `synetscand stopped` | The service stopped normally. |

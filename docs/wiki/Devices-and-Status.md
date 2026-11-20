@@ -65,7 +65,7 @@ SynetScan sorts devices into 14 types, plus **Unknown**:
 | Virtual machine | Virtuelle Maschine | VMware, QEMU/Proxmox, VirtualBox, Hyper-V guests |
 | Unknown | Unbekannt | Not enough information |
 
-The type is a **guess**, made from the MAC vendor, open ports, announced services and names. For example, port 9100 or an IPP service means *Printer*, port 62078 means an Apple mobile device, and a Sonos port means *Speaker*. Devices with a private MAC address reveal no vendor, so the guess has less to go on.
+The type is a **guess**, made from the MAC vendor, open ports, announced services and names. A device that shows nothing but its MAC address in a scan, such as a sleeping Mac, keeps the type it had the last time it showed itself (*since 1.1.8*). For example, port 9100 or an IPP service means *Printer*, port 62078 means an Apple mobile device, and a Sonos port means *Speaker*. Devices with a private MAC address reveal no vendor, so the guess has less to go on.
 
 If a type is wrong, set the right one in the device dialog. Your choice always wins over the automatic type, and the automatic guess stays visible as **Automatic (…)**. See [Managing Names, Types, and Notes](Names-Types-and-Notes). For how the guess works in detail, see [How Discovery and Identification Work](How-Discovery-Works#classification).
 

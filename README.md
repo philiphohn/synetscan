@@ -65,8 +65,8 @@ Open it from the DSM main menu like any other Synology app.
    DSM will warn that the package is from an unknown publisher (it isn't signed
    by Synology). Confirm to continue.
 3. Open **SynetScan** from the DSM main menu. After an update, reload the DSM page (F5)
-   so the desktop picks up the new app entry. A first scan runs automatically when
-   the service starts. The devices it finds become the "known" baseline, and any
+   so the desktop picks up the new app entry. The first scan starts when you open
+   SynetScan for the first time; installing it causes no network activity. The devices it finds become the "known" baseline, and any
    device that appears later is flagged as **New**.
 
 Requirements: DSM 7.0 or newer and Python 3. DSM 7 already ships `/usr/bin/python3`.
@@ -149,14 +149,14 @@ A /24 network takes roughly 8–15 seconds to scan, IPv6 included.
 
 - **Window.** Since DSM 7.2 a `"type": "legacy"` app entry opens in a browser tab, where the
   page cannot use the DSM session. So `ui/config` registers an ExtJS application,
-  `SYNO.SDS.SynetScan.Instance` (see `ui/synetscan.js`), whose `SYNO.SDS.AppWindow` holds
+  `SYNO.SDS.App.SynetScan.Instance` (see `ui/synetscan.js`), whose `SYNO.SDS.AppWindow` holds
   `index.html` in an iframe. `dsmappname` in INFO names the same class, which is what Package
   Center's "Open" button uses.
 - **Session token.** The UI reads the SynoToken from the DSM desktop (its parent window). It
   also receives it in the URL fragment, which no server or log ever sees. API calls send it
   only as the `X-SYNO-TOKEN` header, CSV export included.
 - **Opened outside DSM.** If `index.html` is opened in a tab on its own, the page offers
-  "Open in DSM", which goes to `/?launchApp=SYNO.SDS.SynetScan.Instance`.
+  "Open in DSM", which goes to `/?launchApp=SYNO.SDS.App.SynetScan.Instance`.
 - **Service socket.** The socket has mode `0600`. Only the package user, which DSM also runs
   the package CGI as, can reach the service; everyone else has to go through `api.cgi` and its
   DSM session and admin checks.
@@ -225,13 +225,18 @@ build.sh                  builds dist/SynetScan-<version>-noarch.spk
 
 ```sh
 python3 -m unittest discover -s tests      # unit tests
-python3 tools/devserver.py                 # http://127.0.0.1:8640/  (?lang=de, ?page=devices)
+python3 tools/devserver.py                 # http://localhost:8640/  (?lang=de, ?page=devices)
 ```
 
 The dev server runs the real daemon, with its data in `.devvar/`, and the real API
 code. There is no DSM on a development machine, so `tools/dev_cgi.py` stands in for the
 login check; the package itself has no switch to skip it. To scan specific ranges, edit
 them in **Settings → Scan Targets**.
+
+Like the package, the preview scans the networks of the machine it runs on: with an
+empty `.devvar/`, when you first open it, and then on every start and every hour. To prevent that, set `"scan_on_start": false` and
+`"schedule_enabled": false` in `.devvar/config.json` before starting it. Open it as
+`localhost`: under `127.0.0.1` the app counts as opened from outside and greys out web links.
 
 To update the vendor database:
 
@@ -243,7 +248,8 @@ python3 tools/build_oui.py third_party/manuf src/share/oui.txt.gz
 To release a new version, change the version in four places: `__version__` in
 `src/lib/synetscan/__init__.py`, `VERSION` in `src/ui/synetscan.js`, `"version"` in
 `src/ui/config` and the four `?v=` suffixes in `src/ui/index.html`.
-`BUILD=0002 ./build.sh` sets the build number.
+The build number follows from the version (1.1.7 → `10107`), so it rises with every
+release; `BUILD=<number> ./build.sh` sets one by hand.
 
 ## ⚠️ Limitations
 

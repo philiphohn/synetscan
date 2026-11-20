@@ -21,7 +21,7 @@ A port counts as **open** if the device accepts the connection. SynetScan closes
 - Below the field, a preview shows each entry with its service name, and marks invalid entries in red.
 - **Restore defaults** (*Standard wiederherstellen*) puts the default list back into the field. Click **Apply** to save it.
 
-Limits: each range may span up to 1,024 ports, and the whole list may hold up to 2,048 different ports. Duplicates are removed, and the list is saved sorted.
+Limits: each range may span up to 1,025 ports (for example `8000-9024`), and the whole list may hold up to 2,048 different ports. Duplicates are removed, and the list is saved sorted.
 
 ## The default ports explained
 

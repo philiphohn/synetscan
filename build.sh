@@ -3,7 +3,8 @@
 set -eu
 cd "$(dirname "$0")"
 VERSION_BASE=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/lib/synetscan/__init__.py)
-BUILD=${BUILD:-0001}
+# DSM wants the build number to rise with every release: 1.1.7 is build 10107, 1.2.0 is 10200
+BUILD=${BUILD:-$(echo "$VERSION_BASE" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }')}
 VERSION="$VERSION_BASE-$BUILD"
 OUT=dist
 WORK=$(mktemp -d)
@@ -28,14 +29,15 @@ tar --owner=0 --group=0 --numeric-owner -C "$WORK/pkg" -czf "$WORK/package.tgz" 
 # SPK container
 mkdir -p "$WORK/spk"
 cp "$WORK/package.tgz" "$WORK/spk/"
-cp -R spk/scripts spk/conf "$WORK/spk/"
+cp -R spk/scripts spk/conf spk/WIZARD_UIFILES "$WORK/spk/"
 cp spk/PACKAGE_ICON.PNG spk/PACKAGE_ICON_256.PNG "$WORK/spk/"
 chmod 755 "$WORK/spk/scripts/"*
+chmod 644 "$WORK/spk/WIZARD_UIFILES/"*
 CHECKSUM=$(md5sum "$WORK/package.tgz" | cut -d' ' -f1)
 sed -e "s/@VERSION@/$VERSION/" -e "s/@CREATE_TIME@/$(date +%Y%m%d-%H:%M:%S)/" -e "s/@CHECKSUM@/$CHECKSUM/" \
     spk/INFO.in > "$WORK/spk/INFO"
 
 mkdir -p "$OUT"
 SPK="$OUT/SynetScan-$VERSION-noarch.spk"
-(cd "$WORK/spk" && tar --owner=0 --group=0 --numeric-owner -cf - INFO package.tgz scripts conf PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG) > "$SPK"
+(cd "$WORK/spk" && tar --owner=0 --group=0 --numeric-owner -cf - INFO package.tgz scripts conf WIZARD_UIFILES PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG) > "$SPK"
 echo "built $SPK ($(du -h "$SPK" | cut -f1))"

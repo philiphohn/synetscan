@@ -53,7 +53,7 @@ Response headers include `Cache-Control: no-store`, `X-Content-Type-Options: nos
 
 | Action | Returns |
 | --- | --- |
-| `status` | `status` (`idle`/`scanning`), `phase` (`prepare`, `discover`, `identify`, `verify`), `done`, `total`, `found`, `started`, `trigger`, `version`, `last_scan` (summary or null), `next_scan` (Unix time or null), `last_error`, `now`, `ping` (ping available), `tz_offset` (seconds), `tz_name` |
+| `status` | `status` (`idle`/`scanning`), `phase` (`prepare`, `discover`, `identify`, `verify`), `done`, `total`, `found`, `started`, `trigger`, `version`, `last_scan` (summary or null), `next_scan` (Unix time or null), `last_error`, `now`, `ping` (ping available), `tz_offset` (seconds), `tz_name`, `awaiting_open` (true while a fresh installation waits for the app to be opened before its first scan, *since 1.1.8*) |
 | `overview` | `status` (as above), `hostname`, `interfaces` (`name`, `ip`, `prefix`, `network`, `mac`, `up`, `speed`, `virtual`, `gateway`, `ipv6`, `ipv6_deprecated`), `dns`, `counts` (`total`, `online`, `offline`, `new24h`, `unknown`), `types` (online devices per type), `events` (newest 12), `scans` (newest 20) |
 | `devices` | `devices` (list of device records, see below), `port_names` (port → name), `types` (list of type keys) |
 | `events` | `events`: all events, newest first |
@@ -68,6 +68,7 @@ Response headers include `Cache-Control: no-store`, `X-Content-Type-Options: nos
 | --- | --- | --- |
 | `scan` | `{}` | `started`: false if a scan is already running |
 | `cancel` | `{}` | `{}`. Stops a running scan. |
+| `opened` | `{}` | The same as `status`. Sent by the UI when it opens and `awaiting_open` is true: starts the first scan (trigger `open`) if **Scan when the service starts** is on, and ends the waiting. Changes nothing later (*since 1.1.8*). |
 | `device_update` | `id`, and any of `name`, `notes`, `type_user` (a type key or empty for automatic), `known` | `id` |
 | `device_known` | `ids` (list), `known` (default true) | `{}` |
 | `device_delete` | `ids` (list) | `deleted` (count) |
@@ -158,7 +159,7 @@ A list, oldest first, at most 100 entries:
  "ipv6": {"enabled": true, "ifaces": ["eth0"], "routable": true, "with_ipv6": 4, "only": 1}}
 ```
 
-`trigger`: `manual`, `schedule` or `startup` (missing in scans recorded by 1.1.1 and older). `ipv6.error` is present when IPv6 discovery failed.
+`trigger`: `manual`, `schedule`, `startup` or `open` (the first scan of a fresh installation, started by opening the app, *since 1.1.8*); missing in scans recorded by 1.1.1 and older. `ipv6.error` is present when IPv6 discovery failed.
 
 ### config.json
 

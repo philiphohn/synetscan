@@ -157,10 +157,10 @@ class Scanner:
                 alive[ip] = {"via": ["arp"], "rtt": None, "open": []}
             elif ip in alive:
                 alive[ip]["via"].append("arp")
-        for ip in list(mdns) + list(ssdp):
+        for ip in set(mdns) | set(ssdp):
             if ip in target_set and ip not in own:
                 entry = alive.setdefault(ip, {"via": [], "rtt": None, "open": []})
-                entry["via"].append("mdns" if ip in mdns else "ssdp")
+                entry["via"] += [k for k, answers in (("mdns", mdns), ("ssdp", ssdp)) if ip in answers]
         for ip in own:
             if ip in target_set:
                 alive[ip] = {"via": ["self"], "rtt": 0.0, "open": []}

@@ -1,2 +1,18 @@
 #!/bin/sh
+# Deletes SynetScan's data only when it was asked for in the uninstall dialog. An upgrade runs this
+# script too, without the dialog: then nothing is deleted.
+[ "$SYNOPKG_PKG_STATUS" = "UNINSTALL" ] || exit 0
+[ "$wizard_delete_data" = "true" ] || exit 0
+VAR="${SYNOPKG_PKGVAR:-/var/packages/SynetScan/var}"
+skip() {
+    [ -n "$SYNOPKG_TEMP_LOGFILE" ] && echo "SynetScan's data was not deleted ($1): $VAR" >> "$SYNOPKG_TEMP_LOGFILE"
+    exit 0
+}
+cd "$VAR" 2>/dev/null || skip "folder not found"
+# only ever the package's own data folder, wherever DSM keeps it
+case "$(pwd -P)" in
+    */@appdata/SynetScan|/var/packages/SynetScan/var) ;;
+    *) skip "unexpected folder $(pwd -P)" ;;
+esac
+rm -rf -- ./* ./.[!.]* ./..?* 2>/dev/null
 exit 0

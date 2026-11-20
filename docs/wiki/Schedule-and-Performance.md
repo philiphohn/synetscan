@@ -17,6 +17,8 @@
 
 **Scan when the service starts.** The service starts when you start the package, when the NAS boots, and after every package update. With this option on, SynetScan scans right away, so the list is up to date after a restart. The scan history shows these scans as **Service start**.
 
+**A fresh installation waits for you.** As long as SynetScan's data folder holds none of its data files (a new installation, or one whose data was deleted when it was uninstalled), the service doesn't scan when it starts, and no automatic scan runs either. The first scan starts when you open SynetScan for the first time (shown as **App opened** in the scan history), so installing the package causes no network activity of its own (*since 1.1.8*). With **Scan when the service starts** off, opening the app only starts the schedule: the first automatic scan follows one interval later. Once there is data, for example after an update, everything works as described above. **Delete All Data** empties the files but keeps them, so the schedule carries on, also after a restart.
+
 With **Scan automatically** off, SynetScan only scans when you click **Scan Now**, and at service start if that option is on. Online and offline states are then only as recent as your last manual scan.
 
 ### Choosing an interval

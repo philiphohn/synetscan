@@ -1,8 +1,10 @@
 import json
+import re
 import os
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -161,7 +163,7 @@ class StoreTests(unittest.TestCase):
         a = {"ip": "10.0.0.2", "mac": "00:11:32:00:00:01", "type": "nas", "ports": [5000]}
         b = {"ip": "10.0.0.3", "mac": "aa:bb:cc:00:00:02", "type": "unknown", "ports": []}
         s = self.scan([a, b], 1000)
-        self.assertEqual(s["new"], 2)
+        self.assertEqual(s["new"], 0)  # the first scan's devices are the known baseline
         self.assertTrue(all(d["known"] for d in self.store.devices.values()))  # baseline
         s = self.scan([a], 2000)
         self.assertEqual(s["offline"], 1)
@@ -705,6 +707,341 @@ class Retest113Tests(unittest.TestCase):
         self.assertEqual(found["192.168.50.1"]["locations"], [agent, igd])
         self.assertEqual(found["192.168.50.1"]["server"], "Linux UPnP/1.1 Agent/3.4")
         self.assertEqual(len(found["192.168.50.9"]["locations"]), probes.MAX_LOCATIONS)
+
+
+class Retest115Tests(unittest.TestCase):
+    """Findings from the 1.1.5 tests and the older minor issues, fixed in 1.1.8 (1.1.6 and 1.1.7 were test builds only)."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.store = Store(self.dir)
+
+    def scan(self, hosts, ts):
+        for h in hosts:
+            h.setdefault("type", classify.classify(h))
+        return self.store.merge_scan({"started": ts - 5, "finished": ts, "duration": 5, "targets": ["x"],
+                                      "target_count": 10, "hosts": hosts,
+                                      "_target_ips": {h["ip"] for h in hosts}})
+
+    MAC = "3c:22:fb:00:00:42"
+
+    def awake(self):
+        return {"ip": "192.168.50.42", "mac": self.MAC, "vendor": "Apple", "ports": [], "mdns_name": "office.local",
+                "model": "iMac19,2", "services": ["_companion-link._tcp"], "friendly": "Office"}
+
+    def test_a_sleeping_mac_stays_a_computer(self):
+        self.scan([self.awake()], 1000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "computer")
+        asleep = {"ip": "192.168.50.42", "mac": self.MAC, "vendor": "Apple", "ports": []}
+        self.assertEqual(classify.classify(asleep), "phone")  # what the scan alone says
+        self.scan([asleep], 2000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "computer")
+        # the router still knows its DNS name while it sleeps
+        self.scan([dict(asleep, hostname="office-desk")], 3000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "computer")
+
+    def test_a_device_that_answers_fully_keeps_the_type_of_its_scan(self):
+        for host in ({"ip": "192.168.50.2", "mac": "00:11:32:00:00:02", "vendor": "Synology", "ports": [5000, 5001]},
+                     {"ip": "192.168.50.3", "mac": "aa:bb:cc:00:00:03", "ports": [9100], "model": "Laser"},
+                     {"ip": "192.168.50.4", "mac": "aa:bb:cc:00:00:04", "ports": [], "hostname": "pixel-7"}):
+            self.scan([dict(host)], 1000)
+            self.assertEqual(self.store.devices[host["mac"]]["type_auto"], classify.classify(host))
+
+    def test_unknown_from_the_record_never_overrules_the_scan(self):
+        # a scan may have seen something the record does not keep
+        self.scan([{"ip": "192.168.50.5", "mac": "aa:bb:cc:00:00:05", "ports": [], "type": "camera"}], 1000)
+        self.assertEqual(self.store.devices["aa:bb:cc:00:00:05"]["type_auto"], "camera")
+        self.scan([{"ip": "192.168.50.6", "mac": "aa:bb:cc:00:00:06", "ports": [], "type": "<x>"}], 1000)
+        self.assertEqual(self.store.devices["aa:bb:cc:00:00:06"]["type_auto"], "unknown")
+
+    def test_odd_stored_data_never_costs_the_scan(self):
+        self.scan([self.awake()], 1000)
+        self.store.devices[self.MAC]["type_shown"] = "<x>"  # what no version writes, but a damaged file might hold
+        self.scan([{"ip": "192.168.50.42", "mac": self.MAC, "vendor": "Apple", "ports": [], "type": "phone"}], 2000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "phone")
+
+    def test_a_dns_name_that_tells_the_type_lets_the_scan_decide(self):
+        mac = "8c:79:f5:00:00:71"
+        self.scan([{"ip": "192.168.50.71", "mac": mac, "vendor": "Samsung Electronics", "ports": [],
+                    "ssdp_server": "Linux UPnP/1.0"}], 1000)
+        self.assertEqual(self.store.devices[mac]["type_auto"], "media")
+        self.scan([{"ip": "192.168.50.71", "mac": mac, "vendor": "Samsung Electronics", "ports": [],
+                    "hostname": "galaxy-s21"}], 2000)
+        self.assertEqual(self.store.devices[mac]["type_auto"], "phone")
+
+    def test_shared_macs_and_the_gateway_follow_the_scan(self):
+        mac = "aa:bb:cc:00:00:72"
+        for extra, scanned in (({"proxy_arp_for": ["192.168.50.73"]}, "unknown"), ({"gateway": True}, "router")):
+            self.scan([{"ip": "192.168.50.72", "mac": mac, "ports": [631], "services": ["_ipp._tcp"]}], 1000)
+            self.assertEqual(self.store.devices[mac]["type_auto"], "printer")
+            self.scan([dict({"ip": "192.168.50.72", "mac": mac, "ports": [], "type": scanned}, **extra)], 2000)
+            self.assertEqual(self.store.devices[mac]["type_auto"], scanned)
+
+    def test_a_record_from_an_older_version_follows_the_scan_until_the_device_shows_itself(self):
+        self.scan([self.awake()], 1000)
+        del self.store.devices[self.MAC]["type_shown"]  # as 1.1.5 left it
+        asleep = {"ip": "192.168.50.42", "mac": self.MAC, "vendor": "Apple", "ports": [], "via": ["arp", "tcp"]}
+        self.scan([dict(asleep)], 2000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "phone")  # as 1.1.5
+        self.scan([self.awake()], 3000)
+        self.scan([dict(asleep)], 4000)
+        self.assertEqual(self.store.devices[self.MAC]["type_auto"], "computer")
+
+    def test_a_device_that_answers_bonjour_or_ssdp_is_not_silent(self):
+        self.scan([self.awake()], 1000)
+        for extra in ({"via": ["arp", "mdns"]}, {"via": ["arp", "ssdp"], "ssdp_server": "Linux UPnP/1.0"}):
+            self.scan([dict({"ip": "192.168.50.42", "mac": self.MAC, "vendor": "Apple", "ports": [], "type": "phone"}, **extra)], 2000)
+            self.assertEqual(self.store.devices[self.MAC]["type_auto"], "phone")
+            self.scan([self.awake()], 3000)
+
+    def test_the_gateway_and_the_nas_keep_their_type(self):
+        self.scan([{"ip": "192.168.50.1", "mac": "aa:bb:cc:00:00:01", "ports": [], "gateway": True, "type": "router"},
+                   {"ip": "192.168.50.10", "mac": "aa:bb:cc:00:00:10", "ports": [], "self": True, "type": "nas"}], 1000)
+        self.assertEqual(self.store.devices["aa:bb:cc:00:00:01"]["type_auto"], "router")
+        self.assertEqual(self.store.devices["aa:bb:cc:00:00:10"]["type_auto"], "nas")
+
+    def test_the_first_scan_counts_no_new_devices(self):
+        s = self.scan([self.awake(), {"ip": "192.168.50.7", "mac": "aa:bb:cc:00:00:07", "ports": []}], 1000)
+        self.assertEqual((s["new"], s["online_again"]), (0, 0))
+        self.assertEqual([e["kind"] for e in self.store.events], ["baseline"])
+        s = self.scan([self.awake(), {"ip": "192.168.50.8", "mac": "aa:bb:cc:00:00:08", "ports": []}], 2000)
+        self.assertEqual(s["new"], 1)
+        self.assertEqual([e["kind"] for e in self.store.events][-1], "new")
+
+    def test_new_in_24_hours_is_what_the_tile_counts_and_the_filter_shows(self):
+        with mock.patch("synetscan.store.now", return_value=1000):
+            self.scan([self.awake()], 1000)  # the first scan: baseline
+        with mock.patch("synetscan.store.now", return_value=2000):
+            self.scan([{"ip": "192.168.50.8", "mac": "aa:bb:cc:00:00:08", "ports": []}], 2000)
+        with mock.patch("synetscan.store.now", return_value=2000 + 86400 - 1):
+            flags = {d["id"]: d["new24h"] for d in self.store.list_devices()}
+        self.assertEqual(flags, {self.MAC: False, "aa:bb:cc:00:00:08": True})
+        with mock.patch("synetscan.store.now", return_value=2000 + 86400 + 1):
+            self.assertFalse(any(d["new24h"] for d in self.store.list_devices()))
+
+    def test_the_scan_decides_whenever_the_device_showed_something(self):
+        # a PC that once shared a printer (_ipp) and now shows only its ports: the scan decides
+        mac = "aa:bb:cc:00:00:09"
+        self.scan([{"ip": "192.168.50.9", "mac": mac, "ports": [631], "services": ["_ipp._tcp"]}], 1000)
+        self.assertEqual(self.store.devices[mac]["type_auto"], "printer")
+        self.scan([{"ip": "192.168.50.9", "mac": mac, "ports": [3389, 445]}], 2000)
+        self.assertEqual(self.store.devices[mac]["type_auto"], "computer")
+
+    def test_an_address_without_mac_taken_over_by_another_device(self):
+        # routed networks: records are kept by address, and the address may go to another device
+        self.scan([{"ip": "10.1.0.50", "ports": [9100, 80], "http": {"title": "HP LaserJet"}}], 1000)
+        self.assertEqual(self.store.devices["ip:10.1.0.50"]["type_auto"], "printer")
+        self.scan([{"ip": "10.1.0.50", "ports": [3389, 445], "netbios": "DESKTOP-ABC"}], 2000)
+        self.assertEqual(self.store.devices["ip:10.1.0.50"]["type_auto"], "computer")
+        self.scan([{"ip": "10.1.0.50", "ports": [], "type": "phone"}], 3000)  # silent, no MAC: still the scan
+        self.assertEqual(self.store.devices["ip:10.1.0.50"]["type_auto"], "phone")
+
+    def test_a_record_taken_over_by_a_mac_follows_the_scan(self):
+        self.scan([{"ip": "10.1.0.60", "ports": [554], "friendly": "Garage camera"}], 1000)
+        self.assertEqual(self.store.devices["ip:10.1.0.60"]["type_auto"], "camera")
+        # a phone with a private MAC gets the address and shows nothing: the old record is not its own
+        for ts in (2000, 3000, 4000):
+            self.scan([{"ip": "10.1.0.60", "mac": "da:00:00:00:00:60", "random_mac": True, "ports": []}], ts)
+            self.assertEqual(self.store.devices["da:00:00:00:00:60"]["type_auto"], "phone")
+
+    def test_a_split_off_record_taken_over_by_a_tv_follows_the_scan(self):
+        # a VPN client's record (no MAC, kept by address) with a Mac's name; a TV gets the address
+        self.scan([{"ip": "192.168.50.70", "ports": [], "mdns_name": "Annas-MacBook-Air.local"}], 1000)
+        tv = {"ip": "192.168.50.70", "mac": "8c:79:f5:00:00:70", "vendor": "Samsung Electronics", "ports": []}
+        for ts in (2000, 3000):
+            self.scan([dict(tv)], ts)
+            self.assertEqual(self.store.devices[tv["mac"]]["type_auto"], "media")
+        # once the TV shows itself, its own type is what a silent scan falls back to
+        self.scan([dict(tv, ports=[8001, 8002], services=["_samsungmsf._tcp"])], 4000)
+        self.scan([dict(tv)], 5000)
+        self.assertEqual(self.store.devices[tv["mac"]]["type_auto"], "media")
+
+    def test_a_damaged_first_seen_does_not_break_the_list(self):
+        self.scan([self.awake()], 1000)
+        self.store.devices[self.MAC]["first_seen"] = "yesterday"
+        self.assertFalse(self.store.list_devices()[0]["new24h"])
+        del self.store.devices[self.MAC]["first_seen"]
+        self.assertFalse(self.store.list_devices()[0]["new24h"])
+
+class PackageCenterTests(unittest.TestCase):
+    """What Synology's package review asks for (developer guide, Appendix C), since 1.1.8."""
+
+    ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
+    def service(self, scans=None):
+        from synetscan import daemon
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        if scans is not None:
+            with open(os.path.join(d, "scans.json"), "w") as f:
+                json.dump(scans, f)
+        svc = daemon.Service(d)
+        svc.started = []
+        svc.start_scan = lambda trigger="manual": svc.started.append(trigger) or True
+        return svc
+
+    def run_scheduler(self, svc, rounds=3):
+        svc.next_scan_at = lambda: 0  # always due
+        waits = []
+
+        def wait(t):
+            waits.append(t)
+            return len(waits) > rounds
+        with mock.patch.object(svc.stop_event, "wait", side_effect=wait):
+            svc.scheduler()
+
+    def test_a_fresh_installation_scans_nothing_until_the_app_is_opened(self):
+        svc = self.service()
+        svc.store.config.update(schedule_enabled=True, scan_on_start=True)
+        self.assertTrue(svc.api_status({}, "")["awaiting_open"])
+        self.run_scheduler(svc)
+        self.assertEqual(svc.started, [])   # neither the start-up scan nor the schedule
+        st = svc.api_opened({}, "admin")
+        self.assertEqual(svc.started, ["open"])
+        self.assertFalse(svc.awaiting_open)
+        self.assertFalse(st["awaiting_open"])
+        svc.api_opened({}, "admin")          # every later opening changes nothing
+        self.assertEqual(svc.started, ["open"])
+        svc.store.config["scan_on_start"] = False  # only the loop: the start-up part runs once per service
+        self.run_scheduler(svc)
+        self.assertEqual(svc.started, ["open", "schedule", "schedule", "schedule"])
+
+    def test_with_data_from_an_earlier_scan_the_service_starts_as_before(self):
+        svc = self.service(scans=[{"started": 1, "finished": 2, "found": 1, "new": 0}])
+        self.assertFalse(svc.awaiting_open)
+        svc.store.config.update(scan_on_start=True)
+        self.run_scheduler(svc, rounds=0)
+        self.assertEqual(svc.started, ["startup"])
+        svc.api_opened({}, "admin")
+        self.assertEqual(svc.started, ["startup"])
+
+    def test_emptied_or_damaged_data_keeps_the_schedule_running(self):
+        from synetscan import daemon
+        for name, content in (("scans.json", "[]"), ("devices.json", "not json"), ("config.json", "{}")):
+            d = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, d, True)
+            with open(os.path.join(d, name), "w") as f:
+                f.write(content)
+            self.assertFalse(daemon.Service(d).awaiting_open, name)
+        svc = self.service(scans=[{"started": 1, "finished": 2}])
+        svc.store.reset()                    # Delete All Data, then the NAS restarts
+        self.assertFalse(daemon.Service(svc.var_dir).awaiting_open)
+
+    def test_uninstalling_with_the_data_makes_the_next_installation_wait_again(self):
+        var, link = self.data_dir()
+        self.postuninst(link, "UNINSTALL", "true")
+        from synetscan import daemon
+        self.assertTrue(daemon.Service(var).awaiting_open)
+
+    def test_scan_on_start_off_is_respected_and_the_schedule_counts_from_the_opening(self):
+        svc = self.service()
+        svc.store.config.update(scan_on_start=False, schedule_enabled=True)
+        svc.started_at -= 86400
+        svc.api_opened({}, "admin")
+        self.assertEqual(svc.started, [])
+        self.assertFalse(svc.awaiting_open)
+        self.assertGreater(svc.next_scan_at(), time.time() + 3000)
+
+    def test_a_manual_scan_ends_the_waiting_too(self):
+        from synetscan import daemon
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        svc = daemon.Service(d)
+        with mock.patch.object(svc, "_scan"):
+            self.assertTrue(svc.api_scan({}, "admin")["started"])
+            svc.scan_thread.join()
+        self.assertFalse(svc.awaiting_open)
+
+    def test_opened_needs_a_post(self):
+        from synetscan import cgi_main
+        self.assertIn("opened", cgi_main.ACTIONS)
+        self.assertNotIn("opened", cgi_main.READ_ACTIONS)
+
+    def info(self):
+        with open(os.path.join(self.ROOT, "spk", "INFO.in"), encoding="utf-8") as f:
+            return dict(re.findall(r'^(\w+)="(.*)"$', f.read(), re.M))
+
+    def test_deleting_devices_or_data_is_logged(self):
+        svc = self.service()
+        svc.store.devices = {"a": {"id": "a", "online": True}, "b": {"id": "b", "online": False},
+                             "c": {"id": "c", "online": False}}
+        with self.assertLogs("synetscan", "INFO") as logs:
+            self.assertEqual(svc.api_device_delete({"ids": ["a"]}, "admin")["deleted"], 1)
+            self.assertEqual(svc.api_clear_offline({}, "admin")["deleted"], 2)
+            svc.api_reset({}, "admin")
+        self.assertEqual([r.getMessage() for r in logs.records],
+                         ["1 device(s) deleted by admin", "2 offline device(s) removed by admin",
+                          "all data deleted by admin"])
+
+    def test_info_has_the_required_fields_and_no_deprecated_ones(self):
+        info = self.info()
+        for key in ("package", "version", "os_min_ver", "description", "arch", "maintainer",
+                    "maintainer_url", "support_url", "helpurl"):
+            self.assertTrue(info.get(key), key)
+        for key in ("startable", "thirdparty"):
+            self.assertNotIn(key, info)
+
+    def test_the_app_name_is_the_same_everywhere(self):
+        name = self.info()["dsmappname"]
+        self.assertEqual(name, "SYNO.SDS.App.SynetScan.Instance")
+        with open(os.path.join(self.ROOT, "src", "ui", "config"), encoding="utf-8") as f:
+            cfg = json.load(f)["synetscan.js"]
+        self.assertEqual(cfg[name]["appWindow"], "SYNO.SDS.App.SynetScan.MainWindow")
+        self.assertIn("SYNO.SDS.App.SynetScan.MainWindow", cfg)
+        for rel, text in (("src/ui/synetscan.js", 'Ext.define("%s"' % name),
+                          ("src/ui/synetscan.js", 'Ext.define("SYNO.SDS.App.SynetScan.MainWindow"'),
+                          ("src/ui/js/app.js", 'APP_ID = "%s"' % name)):
+            with open(os.path.join(self.ROOT, rel), encoding="utf-8") as f:
+                self.assertIn(text, f.read(), rel)
+
+    def test_the_uninstall_dialog_asks_for_the_key_the_script_reads(self):
+        with open(os.path.join(self.ROOT, "spk", "scripts", "postuninst"), encoding="utf-8") as f:
+            script = f.read()
+        for lang in ("", "_ger"):
+            with open(os.path.join(self.ROOT, "spk", "WIZARD_UIFILES", "uninstall_uifile" + lang), encoding="utf-8") as f:
+                steps = json.load(f)
+            sub = steps[0]["items"][0]["subitems"][0]
+            self.assertEqual(sub["key"], "wizard_delete_data")
+            self.assertIs(sub["defaultValue"], False)   # keeping the data is what happens unless asked
+            self.assertIn("$" + sub["key"], script)
+
+    def postuninst(self, var, status, delete, logfile=""):
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "SYNOPKG_PKG_STATUS": status,
+               "SYNOPKG_PKGVAR": var, "wizard_delete_data": delete, "SYNOPKG_TEMP_LOGFILE": logfile}
+        r = subprocess.run(["sh", os.path.join(self.ROOT, "spk", "scripts", "postuninst")], env=env,
+                           cwd=tempfile.gettempdir(), capture_output=True, timeout=10)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def data_dir(self, name="SynetScan"):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        var = os.path.join(root, "@appdata", name)
+        os.makedirs(os.path.join(var, "sub"))
+        for n in ("devices.json", ".tmp-x", "..odd", "sub/a"):
+            open(os.path.join(var, n), "w").close()
+        link = os.path.join(root, "var")   # DSM's /var/packages/SynetScan/var is such a link
+        os.symlink(var, link)
+        return var, link
+
+    def test_uninstall_deletes_the_data_only_when_asked(self):
+        var, link = self.data_dir()
+        self.postuninst(link, "UNINSTALL", "false")
+        self.postuninst(link, "UPGRADE", "true")
+        self.postuninst(link, "", "true")
+        self.assertEqual(len(os.listdir(var)), 4)
+        self.postuninst(link, "UNINSTALL", "true")
+        self.assertEqual(os.listdir(var), [])
+        self.assertTrue(os.path.isdir(var))   # the folder itself is DSM's
+
+    def test_uninstall_never_deletes_anything_but_the_package_folder(self):
+        var, link = self.data_dir("Other")
+        log = os.path.join(var, "..", "pkglog")
+        self.postuninst(link, "UNINSTALL", "true", log)
+        self.postuninst(os.path.join(var, "missing"), "UNINSTALL", "true", log)
+        self.assertEqual(len(os.listdir(var)), 4)
+        with open(log) as f:   # Package Center shows why, instead of saying nothing
+            self.assertEqual(f.read().count("SynetScan's data was not deleted"), 2)
 
 
 if __name__ == "__main__":

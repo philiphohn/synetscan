@@ -557,7 +557,7 @@ class ApiGateTests(unittest.TestCase):
         self.assertLessEqual(cgi_main.READ_ACTIONS, cgi_main.ACTIONS)
         self.assertEqual(cgi_main.ACTIONS - cgi_main.READ_ACTIONS,
                          {"scan", "cancel", "reset", "config_set", "device_update", "device_known", "device_delete",
-                          "wake", "clear_events", "clear_offline"})
+                          "wake", "clear_events", "clear_offline", "opened"})
         self.assertEqual(self.code("scan", "POST", b"[1]", CONTENT_TYPE="application/json"), "bad_request")
         self.assertEqual(self.code("scan", "POST", b"[" * 100000, CONTENT_TYPE="application/json"), "bad_request")
         self.assertEqual(self.code("scan", "POST", b"x", CONTENT_TYPE="application/json", CONTENT_LENGTH="99999999"), "too_large")

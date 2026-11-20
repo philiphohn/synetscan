@@ -8,7 +8,7 @@
   try { if (window.parent !== window && window.parent.SYNO) SYNO = window.parent.SYNO; } catch (e) { /* cross origin */ }
   var params = new URLSearchParams(location.search);
   var TOPLEVEL = window.parent === window;
-  var APP_ID = "SYNO.SDS.SynetScan.Instance";
+  var APP_ID = "SYNO.SDS.App.SynetScan.Instance";
 
   // The DSM window passes the session token in the fragment (never sent to a server). Keep it in
   // memory and take it out of the address bar.
@@ -447,6 +447,7 @@
         el.innerHTML = '<div class="row txt"><span class="dot on"></span>' + esc(T("idle")) + '</div><div class="txt" style="margin-top:6px">' +
           esc(T("last_scan")) + ": " + esc(st.last_scan ? rel(st.last_scan.finished) : T("never")) + "</div>";
       }
+      if (st.version) el.innerHTML += '<div class="txt faint" style="margin-top:6px">SynetScan ' + esc(st.version) + "</div>";
     }
     $$("[data-scan-btn]").forEach(function (b) {
       b.innerHTML = (scanning ? I.stop : I.scan) + "<span>" + esc(scanning ? T("cancel_scan") : T("scan_now")) + "</span>";
@@ -455,8 +456,16 @@
     if (S.page === "overview") renderBanner();
     if (S.wasScanning && !scanning) {
       S.wasScanning = false;
-      if (st.last_scan && !st.last_error) toast(T("scan_done", st.last_scan.found, st.last_scan.new), "info");
-      refreshPage();
+      var told = !(st.last_scan && !st.last_error);
+      var done = function () {
+        if (told) return;
+        told = true;
+        if (!document.querySelector(".fatal")) toast(T("scan_done", st.last_scan.found, st.last_scan.new), "info");
+      };
+      // the message comes once the page shows the result: after the reload, also a failed one,
+      // and at the latest after 8 s
+      Promise.resolve(refreshPage()).then(done, done);
+      setTimeout(done, 8000);
       if (S.page !== "devices") loadDevices(true);
     } else if (scanning) {
       S.wasScanning = true;
@@ -497,8 +506,8 @@
     var st = S.status || OV.status, c = OV.counts, icon, title, desc, actions;
     var scanning = st.status === "scanning";
     if (scanning) {
-      var ranges = (st.last_scan && st.last_scan.targets || []).join(", ") || "LAN";
-      icon = I.status_scan; title = T("ov_scanning"); desc = T("ov_scanning_desc", ranges);
+      var ranges = (st.last_scan && st.last_scan.targets || []).join(", ");
+      icon = I.status_scan; title = T("ov_scanning"); desc = ranges ? T("ov_scanning_desc", ranges) : T("ov_scanning_any");
       actions = scanBtn() + '<div class="progress"><div style="width:' + progressPct(st) + '%"></div></div><div class="muted">' +
         esc(T("phase_" + st.phase)) + " · " + esc(T("found_n", st.found || 0)) + "</div>";
     } else if (!st.last_scan) {
@@ -575,7 +584,7 @@
     $$(".tile", $("#ov")).forEach(function (t) {
       t.onclick = function () {
         var f = t.getAttribute("data-filter");
-        S.filter = f === "new" ? "unknown" : f; S.typeFilter = ""; go("devices");
+        S.filter = f; S.typeFilter = ""; go("devices");
       };
     });
     $$(".bar-row", $("#ov")).forEach(function (r) {
@@ -602,7 +611,7 @@
       '<button class="btn" id="d-delete" disabled>' + esc(T("del")) + "</button>" +
       '<button class="btn" id="d-action">' + esc(T("action")) + '<span class="caret"></span></button>' +
       '<div class="tb-group"><select class="select" id="d-filter"><option value="all">' + esc(T("filter_all")) + '</option><option value="online">' + esc(T("filter_online")) +
-      '</option><option value="offline">' + esc(T("filter_offline")) + '</option><option value="unknown">' + esc(T("filter_unknown")) + "</option></select>" +
+      '</option><option value="offline">' + esc(T("filter_offline")) + '</option><option value="unknown">' + esc(T("filter_unknown")) + '</option><option value="new">' + esc(T("filter_new")) + "</option></select>" +
       '<select class="select" id="d-type"></select>' +
       '<div class="search">' + I.search + '<input class="input" id="d-search" placeholder="' + esc(T("search")) + '"></div></div></div>' +
       '<div class="grid-wrap" id="d-grid"></div><div class="grid-footer" id="d-foot"></div>';
@@ -767,6 +776,7 @@
       if (S.filter === "online" && !d.online) return false;
       if (S.filter === "offline" && d.online) return false;
       if (S.filter === "unknown" && d.known) return false;
+      if (S.filter === "new" && !d.new24h) return false;
       if (S.typeFilter && d.type !== S.typeFilter) return false;
       if (q) {
         var hay = [d.display_name, d.ip, (d.other_ips || []).join(" "), (d.ipv6 || []).join(" "), d.mac, d.vendor, d.hostname, d.mdns_name, d.netbios, d.model, d.notes, typeName(d.type)].join(" ").toLowerCase();
@@ -978,6 +988,18 @@
     return T("every_hours", m / 60);
   }
   function opt(v, label, cur) { return '<option value="' + esc(v) + '"' + (String(v) === String(cur) ? " selected" : "") + ">" + esc(label) + "</option>"; }
+  // the choices of a list, plus the stored value if the list doesn't have it (a hand-edited
+  // setting would otherwise show as the first choice, and the next Apply would replace it).
+  // Only a value the service accepts (lo…hi) is offered: anything else would block saving.
+  function opts(values, cur, label, lo, hi) {
+    var list = values.slice();
+    if (typeof cur === "number" && isFinite(cur) && cur >= lo && cur <= hi &&
+        !list.some(function (v) { return String(v) === String(cur); })) {
+      list.push(cur);
+      list.sort(function (a, b) { return a - b; });
+    }
+    return list.map(function (v) { return opt(v, label(v), cur); }).join("");
+  }
   function chk(id, label, on, extra) {
     return '<label class="check"><input type="checkbox" id="' + id + '"' + (on ? " checked" : "") + (extra || "") + ">" + esc(label) + "</label>";
   }
@@ -993,14 +1015,17 @@
     }).join("");
     var targets = '<div class="form-section"><h3>' + esc(T("s_targets")) + '</h3><p class="desc">' + esc(T("s_targets_desc")) + "</p>" +
       '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">' + chk("s-auto", T("s_auto"), c.auto_subnets) + ifList + "</div>" +
-      field(T("s_max_hosts"), '<select class="select" id="s-maxhosts" style="width:160px">' + [[24, 256], [23, 512], [22, 1024], [21, 2048], [20, 4096], [19, 8192]].map(function (v) { return opt(v[1], "/" + v[0] + "  (" + (v[1] - 2) + ")", c.max_hosts_per_subnet); }).join("") + "</select>", T("s_max_hosts_hint")) +
+      field(T("s_max_hosts"), '<select class="select" id="s-maxhosts" style="width:160px">' + opts([256, 512, 1024, 2048, 4096, 8192], c.max_hosts_per_subnet, function (n) {
+        var bits = Math.log(n) / Math.LN2;
+        return Math.pow(2, Math.round(bits)) === n ? "/" + (32 - Math.round(bits)) + "  (" + (n - 2) + ")" : String(n);
+      }, 16, 16384) + "</select>", T("s_max_hosts_hint")) +
       field(T("s_custom"), '<textarea class="textarea mono" id="s-custom" rows="5" spellcheck="false">' + esc(c.custom_targets.join("\n")) + "</textarea>", T("s_custom_hint")) + "</div>";
 
     var sched = '<div class="form-section"><h3>' + esc(T("s_schedule")) + '</h3><p class="desc">' + esc(T("s_schedule_desc")) + "</p>" +
       field("", chk("s-sched", T("s_schedule_enable"), c.schedule_enabled)) +
-      field(T("s_interval"), '<select class="select" id="s-interval" style="width:220px">' + CFG.intervals.map(function (m) { return opt(m, intervalLabel(m), c.schedule_interval); }).join("") + "</select>") +
+      field(T("s_interval"), '<select class="select" id="s-interval" style="width:220px">' + opts(CFG.intervals, c.schedule_interval, intervalLabel, 5, 1440) + "</select>") +
       field("", chk("s-onstart", T("s_scan_on_start"), c.scan_on_start)) +
-      field(T("s_offline_after"), '<select class="select" id="s-offline" style="width:220px">' + [1, 2, 3, 5].map(function (n) { return opt(n, n === 1 ? T("s_offline_after_1") : T("s_offline_after_n", n), c.offline_after_scans); }).join("") + "</select>") + "</div>";
+      field(T("s_offline_after"), '<select class="select" id="s-offline" style="width:220px">' + opts([1, 2, 3, 5], c.offline_after_scans, function (n) { return +n === 1 ? T("s_offline_after_1") : T("s_offline_after_n", n); }, 1, 10) + "</select>") + "</div>";
 
     var ports = '<div class="form-section"><h3>' + esc(T("s_ports")) + '</h3><p class="desc">' + esc(T("s_ports_desc")) + "</p>" +
       field(T("s_ports_field"), '<textarea class="textarea mono" id="s-ports" rows="5" spellcheck="false">' + esc(c.ports.join(", ")) + '</textarea><div><button class="btn" id="s-ports-reset">' + esc(T("s_ports_reset")) + "</button></div>", T("s_ports_hint")) +
@@ -1015,10 +1040,10 @@
       chk("s-ipv6", T("s_use_ipv6"), c.use_ipv6 !== false) + ipv6Hint() +
       "</div></div>" +
       '<div class="form-section"><h3>' + esc(T("s_perf")) + "</h3>" +
-      field(T("s_timeout"), '<select class="select" id="s-timeout" style="width:160px">' + [0.3, 0.6, 1, 1.5, 2, 3].map(function (v) { return opt(v, String(v).replace(".", LANG === "de" ? "," : "."), c.timeout); }).join("") + "</select>") +
-      field(T("s_threads"), '<select class="select" id="s-threads" style="width:160px">' + [16, 32, 64, 128, 256].map(function (v) { return opt(v, String(v), c.threads); }).join("") + "</select>") + "</div>" +
+      field(T("s_timeout"), '<select class="select" id="s-timeout" style="width:160px">' + opts([0.3, 0.6, 1, 1.5, 2, 3], c.timeout, function (v) { return String(v).replace(".", LANG === "de" ? "," : "."); }, 0.1, 5) + "</select>") +
+      field(T("s_threads"), '<select class="select" id="s-threads" style="width:160px">' + opts([16, 32, 64, 128, 256], c.threads, String, 4, 256) + "</select>") + "</div>" +
       '<div class="form-section"><h3>' + esc(T("s_data")) + "</h3>" +
-      field(T("s_forget"), '<select class="select" id="s-forget" style="width:160px">' + [0, 7, 30, 90, 365].map(function (v) { return opt(v, v ? T("s_forget_days", v) : T("s_forget_never"), c.forget_after_days); }).join("") + "</select>") +
+      field(T("s_forget"), '<select class="select" id="s-forget" style="width:160px">' + opts([0, 7, 30, 90, 365], c.forget_after_days, function (v) { return +v ? T("s_forget_days", v) : T("s_forget_never"); }, 0, 3650) + "</select>") +
       field("", '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="s-clear-offline">' + esc(T("s_clear_offline")) + '</button><button class="btn danger" id="s-reset">' + esc(T("s_reset")) + "</button></div>") + "</div>";
 
     var tabs = [["targets", "tab_targets", targets], ["schedule", "tab_schedule", sched], ["ports", "tab_ports", ports], ["advanced", "tab_advanced", adv]];
@@ -1106,13 +1131,26 @@
   }
 
   // ------------------------------------------------------------------ boot
+  // Right after the package was started, the window can open before the service listens:
+  // ask again for a few seconds before saying that it isn't running.
+  function firstStatus(tries) {
+    return api("status").then(null, function (err) {
+      if (!(err && err.code === "daemon" && tries > 1)) throw err;
+      return new Promise(function (ok) { setTimeout(ok, 2000); }).then(function () { return firstStatus(tries - 1); });
+    });
+  }
+
   function start() {
     buildShell();
     var page = "overview";
     try { page = params.get("page") || localStorage.getItem("synetscan.page") || "overview"; } catch (e) { page = params.get("page") || page; }
     if (["overview", "devices", "activity", "settings"].indexOf(page) < 0) page = "overview";
     loadClient();
-    api("status").then(function (st) {
+    firstStatus(4).then(function (st) {
+      // a fresh installation starts its first scan when the app is opened, not when it is installed
+      if (!st.awaiting_open) return st;
+      return api("opened", {}).then(null, function () { return st; });
+    }).then(function (st) {
       S.wasScanning = st.status === "scanning";
       setStatus(st);
       go(page);

@@ -53,31 +53,32 @@ build.sh                  builds dist/SynetScan-<version>-noarch.spk
 
 ## Package lifecycle
 
-`spk/INFO.in` declares the package: `arch="noarch"`, `os_min_ver="7.0-40000"`, `dsmuidir="ui"`, `dsmappname="SYNO.SDS.SynetScan.Instance"`, `thirdparty="yes"`, `silent_upgrade="yes"`, `startable="yes"`, `ctl_stop="yes"`. `spk/conf/privilege` sets `run-as: package`.
+`spk/INFO.in` declares the package: `arch="noarch"`, `os_min_ver="7.0-40000"`, `dsmuidir="ui"`, `dsmappname="SYNO.SDS.App.SynetScan.Instance"` (the class namespace Synology's developer guide uses for packages), `silent_upgrade="yes"`, `ctl_stop="yes"`, and `maintainer_url`, `support_url` and `helpurl` (the GitHub repository, its issues and this wiki; DSM 7.1 and 7.4 show only the first, as the link on the developer's name). The deprecated `startable` and the unused `thirdparty` are gone since 1.1.8. `spk/conf/privilege` sets `run-as: package`. `spk/WIZARD_UIFILES/uninstall_uifile` (German: `uninstall_uifile_ger`) adds the uninstall dialog's **Delete all SynetScan data** checkbox, key `wizard_delete_data`, unticked by default.
 
 | Script | Does |
 | --- | --- |
 | `preinst` | Finds Python 3 (Python 3.9 package, `/usr/local/bin`, `/usr/bin`, `/bin`) and requires ≥ 3.6; otherwise aborts with a message Package Center shows |
 | `postinst` | Creates the data folder, makes `api.cgi` and `synetscand` executable |
 | `start-stop-status` | `start`: launches `synetscand` in the background (umask 077), writes the PID file, waits up to 10 s for the socket. `stop`: SIGTERM, up to 15 s, then SIGKILL. `status`: exit 0 if running, 3 otherwise. `log`: prints the log path. |
-| `preuninst`, `postuninst`, `preupgrade`, `postupgrade` | Nothing |
+| `postuninst` | Deletes the contents of the data folder, but only when `SYNOPKG_PKG_STATUS` is `UNINSTALL` and the uninstall dialog's `wizard_delete_data` is `true`, and only if the folder resolves to `…/@appdata/SynetScan` or `/var/packages/SynetScan/var`. Otherwise, and always during an update, nothing. |
+| `preuninst`, `preupgrade`, `postupgrade` | Nothing |
 
 ## The service
 
 - `synetscand` (shell) finds Python and starts `synetscan.daemon.run(var_dir)` with `-I` (isolated mode), with the log file as argument.
 - On start it sets umask 077, tightens the modes of existing data files, raises the open-file limit (to 4096 if allowed), loads the store, and listens on `synetscan.sock` (mode 0600). The socket is bound relative to the data folder, so long paths don't hit the 108-byte limit of Unix socket paths.
-- **Scheduler thread**: starts a scan on service start if `scan_on_start`, then checks every 5 seconds whether the next scan is due (`last scan end or last attempt + interval`).
+- **Scheduler thread**: starts a scan on service start if `scan_on_start`, then checks every 5 seconds whether the next scan is due (`last scan end or last attempt + interval`). A service that starts with none of the data files `devices.json`, `events.json`, `scans.json`, `config.json` (a fresh installation, or one whose data was deleted on uninstall) waits instead (`awaiting_open`): neither scan runs until the UI calls `opened` when the app is opened, which starts the first scan (trigger `open`) if `scan_on_start` is on. Any scan ends the waiting.
 - **Scan thread**: at most one scan at a time. Progress (phase, done, total, found) is exposed through `status`. A cancel event stops it between steps.
 - **API**: one request per connection, one line of JSON in, one line out, a 30-second idle timeout, 1 MB maximum request. Handled in threads.
 - **Store**: a single lock. Each change rewrites the affected file atomically (`tempfile` + `os.replace`, mode 0600).
 
 ## DSM integration
 
-- **Window.** Since DSM 7.2, a `"type": "legacy"` app entry opens in a browser tab, where the page can't use the DSM session. So `ui/config` registers an ExtJS application, `SYNO.SDS.SynetScan.Instance` (see `ui/synetscan.js`), whose `SYNO.SDS.AppWindow` holds `index.html` in an iframe. `dsmappname` in INFO names the same class, which is what Package Center's **Open** button uses. `allUsers: false` limits the menu entry to administrators.
+- **Window.** Since DSM 7.2, a `"type": "legacy"` app entry opens in a browser tab, where the page can't use the DSM session. So `ui/config` registers an ExtJS application, `SYNO.SDS.App.SynetScan.Instance` (see `ui/synetscan.js`), whose `SYNO.SDS.AppWindow` holds `index.html` in an iframe. `dsmappname` in INFO names the same class, which is what Package Center's **Open** button uses. `allUsers: false` limits the menu entry to administrators.
 - **Focus.** Clicks inside an iframe never reach DSM. The page posts a message on mousedown, and the window brings itself to the front and closes DSM's open menus.
 - **Session token.** The UI reads the SynoToken from the DSM desktop (its parent window). It also receives it in the URL fragment, which no server or log ever sees, and removes it from the address bar right away. API calls send it only as the `X-SYNO-TOKEN` header, CSV export included.
 - **Language and fonts.** The UI reads DSM's session language (`ger` means German) and DSM's font from the parent window.
-- **Opened outside DSM.** If `index.html` is opened in a tab on its own, the page offers **Open in DSM**, which goes to `/?launchApp=SYNO.SDS.SynetScan.Instance`.
+- **Opened outside DSM.** If `index.html` is opened in a tab on its own, the page offers **Open in DSM**, which goes to `/?launchApp=SYNO.SDS.App.SynetScan.Instance`.
 - **Service socket.** The socket has mode `0600`. Only the package user, which DSM also runs the package CGI as, can reach the service. Everyone else has to go through `api.cgi` and its DSM session and admin checks.
 - **Local or remote.** `api.cgi?action=client` compares the browser's address (`REMOTE_ADDR`) with the networks of the NAS's connected physical interfaces. See [Local Access](Local-Access-QuickConnect-VPN-and-DDNS).
 - **Errors.** The CGI always answers HTTP 200 with `"success": false`, so DSM's nginx never swaps the answer for an HTML error page. The UI translates errors by their `code`.

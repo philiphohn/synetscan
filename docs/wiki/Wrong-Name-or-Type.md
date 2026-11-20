@@ -15,7 +15,7 @@
 
 **Names from another device.** In networks with a router that answers ARP for VPN clients (proxy ARP), versions before 1.1.2 could merge names of the clients into the router's record. Current versions split them and remove those names. A DNS server that has stale entries can also give a device another device's old name.
 
-**Types are guesses.** The type is derived from the vendor, open ports, services and names. A device with a private MAC address reveals no vendor, and a device with no open ports gives little to go on. Some devices look alike: a Mac with AirPlay receiver enabled has AirPlay like an Apple TV, and a Samsung address is usually a TV but can be a phone.
+**Types are guesses.** The type is derived from the vendor, open ports, services and names. The latest scan decides. Only when a device showed nothing but its MAC address (no open ports, no Bonjour, UPnP or NetBIOS answers), as a sleeping Mac does, it keeps the type it had the last time it did show itself, so the Mac stays a computer instead of showing up as a smartphone (*since 1.1.8*, once the device has been seen awake under 1.1.7). A device with a private MAC address reveals no vendor, and a device with no open ports gives little to go on. Some devices look alike: a Mac with AirPlay receiver enabled has AirPlay like an Apple TV, and a Samsung address is usually a TV but can be a phone.
 
 **Names can be false.** Every name comes from the network. A device can announce any name it likes.
 

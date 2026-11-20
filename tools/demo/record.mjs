@@ -1,7 +1,7 @@
 // Records the animated README demo (docs/images/demo.gif) from the dev server.
 //
 //   python3 tools/demo/seed.py .devvar && python3 tools/devserver.py &
-//   node tools/demo/record.mjs [http://127.0.0.1:8640/] [docs/images/demo.gif]
+//   node tools/demo/record.mjs [http://localhost:8640/] [docs/images/demo.gif]
 //
 // Drives the app in headless Chrome over the DevTools protocol (no dependencies), draws a mouse
 // pointer, captures a PNG per frame and assembles the GIF with ffmpeg (two-pass palette).
@@ -12,7 +12,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const [base = "http://127.0.0.1:8640/", out = join(HERE, "../../docs/images/demo.gif")] = process.argv.slice(2);
+const [base = "http://localhost:8640/", out = join(HERE, "../../docs/images/demo.gif")] = process.argv.slice(2);
 const W = 1200, H = 760, GIF_WIDTH = 960;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

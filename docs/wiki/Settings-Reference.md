@@ -7,7 +7,7 @@ General rules:
 - Changes take effect when you click **Apply**. **Reset** discards changes you haven't applied.
 - New settings apply from the next scan on. A running scan finishes with the settings it started with.
 - Every value is checked when you apply it. Invalid values are rejected with a message, and nothing is saved.
-- "UI choices" are the values the Settings page offers. The service accepts the wider "Allowed range", which only matters if `config.json` is edited by hand. A value outside the UI choices shows the first choice in the list, and saving the page then replaces it.
+- "UI choices" are the values the Settings page offers. The service accepts the wider "Allowed range", which only matters if `config.json` is edited by hand. A value outside the UI choices but inside the allowed range is shown as an extra choice and kept when you save (*since 1.1.8*). A value outside the allowed range shows the first choice, and saving the page replaces it.
 
 ## Scan Targets
 
@@ -30,7 +30,7 @@ Limits: a scan covers at most 65,536 IPv4 addresses in total. Entries are cut to
 | --- | --- | --- | --- | --- |
 | **Scan automatically**<br>*Automatisch scannen* | `schedule_enabled` | on | on / off | Runs scans on the interval below. Off: the Overview shows *Manual only*. |
 | **Interval**<br>*Intervall* | `schedule_interval` | 60 (Every hour) | UI: 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440 minutes. Allowed range: 5–1440 | Time from the end of the last scan (or scan attempt) to the next automatic scan. Disabled while automatic scans are off. |
-| **Scan when the service starts**<br>*Beim Start des Dienstes scannen* | `scan_on_start` | on | on / off | Scans as soon as the package service starts: package start, NAS boot, package update. |
+| **Scan when the service starts**<br>*Beim Start des Dienstes scannen* | `scan_on_start` | on | on / off | Scans as soon as the package service starts: package start, NAS boot, package update. On a fresh installation, the first scan waits until SynetScan is opened for the first time (*since 1.1.8*). |
 | **Mark offline after**<br>*Als offline markieren nach* | `offline_after_scans` | 1 | UI: 1, 2, 3, 5 missed scans. Allowed range: 1–10 | Number of scans in a row a device must miss before it counts as offline and a *Went offline* event is recorded. Only scans that covered the device's address count. |
 
 Details: [Scan Schedule and Performance](Schedule-and-Performance).

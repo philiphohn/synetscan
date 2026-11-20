@@ -77,7 +77,7 @@ Keeps the ports that matter most for types and web interfaces. Fewer ports make 
 
 `3000-3010, 4200, 5173, 8000-8010, 8080-8090`
 
-Typical development servers (Node.js, Angular, Vite, Django and others). Ranges are allowed: each may span up to 1,024 ports.
+Typical development servers (Node.js, Angular, Vite, Django and others). Ranges are allowed: each may span up to 1,025 ports, for example `8000-9024`.
 
 ## 4. Expected result
 
@@ -89,7 +89,7 @@ Typical development servers (Node.js, Angular, Vite, Django and others). Ranges 
 
 | Problem | Explanation and fix |
 | --- | --- |
-| **"… is not a valid port or port range."** | Ports are numbers from 1 to 65535, and a range like `8000-8100` may span up to 1,024 ports. Separate entries with commas or spaces. |
+| **"… is not a valid port or port range."** | Ports are numbers from 1 to 65535, and a range may span up to 1,025 ports, for example `8000-9024`. Separate entries with commas or spaces. |
 | **"ports: at most 2048 ports"** | The whole list may contain up to 2,048 different ports. Use smaller ranges. |
 | **Scans take much longer.** | Devices that silently drop connection attempts cost up to *probe timeout + 0.3 s* for every group of 32 ports. A list of 1,000 ports means about 30 seconds per such device. Shorten the list or lower the probe timeout. |
 | **A port I added doesn't show up.** | It's closed or filtered on that device, or a firewall between the NAS and the device blocks it. Check from another computer whether the service answers. UDP services can't be detected. |
